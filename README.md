@@ -20,15 +20,18 @@ builder.py ──► site/data/*.json ──► GitHub Pages (site/index.html)
 ### 1. Supabase (baza in zbiranje)
 
 1. Na [supabase.com](https://supabase.com) ustvari brezplačen projekt (regija Frankfurt ali Zürich).
-2. **SQL Editor** → prilepi in zaženi `supabase/01_schema.sql`, nato še `supabase/02_collect_and_api.sql`.
-   Če drugi korak javi napako pri `create extension`: **Database → Extensions** → vklopi `pg_cron` in `pg_net`, nato zaženi znova.
+2. Shemo namesti na enega od dveh načinov:
+   - **GitHub integracija** (priporočeno): Project Settings → Integrations → GitHub → poveži ta repozitorij, *Supabase directory* `supabase`, vklopi **Deploy to production** (veja `main`). Migracije iz `supabase/migrations/` se namestijo ob vsakem pushu na `main`.
+   - **Ročno**: v **SQL Editor** po vrsti zaženi obe datoteki iz `supabase/migrations/`.
+
+   Če namestitev javi napako pri `create extension`: **Database → Extensions** → vklopi `pg_cron` in `pg_net`, nato ponovi.
 3. Preveri čez 5 minut v SQL Editorju:
    ```sql
    select count(*) from nb.stations;                    -- > 0
    select * from nb.runs order by ts desc limit 5;      -- ok = true
    ```
 
-Zbiranje zdaj teče samo od sebe vsaki 2 minuti.
+Zbiranje zdaj teče samo od sebe vsaki 2 minuti. Spremembe baze dodajaj kot nove datoteke v `supabase/migrations/` (obstoječih ne spreminjaj, ker se ne izvedejo ponovno).
 
 ### 2. GitHub (izračun in stran)
 
@@ -60,8 +63,8 @@ Z nastavljenim `DATABASE_URL` vsi skripti (`collector.py`, `builder.py`, `simula
 
 | Datoteka | Kaj dela |
 |---|---|
-| `supabase/01_schema.sql` | tabele in funkcija `nb.ingest()` (sklepanje voženj v SQL) |
-| `supabase/02_collect_and_api.sql` | pg_cron opravilo vsaki 2 min, čiščenje starih podatkov, javni pogledi |
+| `supabase/migrations/…_nb_schema.sql` | tabele in funkcija `nb.ingest()` (sklepanje voženj v SQL) |
+| `supabase/migrations/…_nb_collect_and_api.sql` | pg_cron opravilo vsaki 2 min, čiščenje starih podatkov, javni pogledi |
 | `builder.py` | statistike → `site/data/*.json` (SQLite ali Postgres) |
 | `collector.py` | ista logika v Pythonu za SQLite/lastni strežnik |
 | `simulate.py` | simulirani podatki v obliki nextbike-live.json za razvoj in test |

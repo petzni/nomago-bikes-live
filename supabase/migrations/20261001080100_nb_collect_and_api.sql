@@ -1,5 +1,5 @@
 -- Nomago Bikes v živo: samodejno zbiranje v Supabase (pg_cron + pg_net) in javni pogledi za stran.
--- Zaženi PO 01_schema.sql. Varno za ponovni zagon.
+-- Teče po migraciji nb_schema. Varno za ponovni zagon.
 -- Če "create extension" javi napako: Dashboard -> Database -> Extensions -> vklopi pg_cron in pg_net, nato zaženi znova.
 
 create extension if not exists pg_cron;
