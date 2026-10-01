@@ -527,6 +527,7 @@ async function init() {
     $("#fresh").innerHTML = `<span class="err">Podatkov ni mogoče naložiti. Ali zbiralnik in builder tečeta?</span>`; return;
   }
   $("#demo").hidden = !META.demo;
+  if (!META.systems.length) { $("#fresh").textContent = "zbiranje podatkov se še ni začelo, poskusi čez nekaj minut"; return; }
   const h = (location.hash || "").slice(1);
   const keys = ["all", ...META.systems.map(s => s.domain)];
   current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].domain);

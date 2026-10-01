@@ -46,7 +46,7 @@ jobs:
         if: steps.mode.outputs.mode == 'live'
         run: |
           pip install "psycopg[binary]"
-          python builder.py
+          python builder.py 2> err.txt || { cat err.txt; echo "::error::$(tail -n 3 err.txt | tr '\n' ' ')"; exit 1; }
 
       - name: Demo (simulirani podatki)
         if: steps.mode.outputs.mode == 'demo'

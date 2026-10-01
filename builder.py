@@ -241,6 +241,11 @@ def build_system(con, domains, now, name, stations, hist, wx):
 def main(now=None):
     con = C.connect()
     now = now or int(time.time())
+    try:
+        con.execute("SELECT 1 FROM stations LIMIT 1").fetchall()
+    except Exception as e:
+        raise SystemExit(f"Tabele nb.* ne obstajajo ali niso dosegljive ({type(e).__name__}). "
+                         "Ali so se Supabase migracije izvedle?")
     stations = {}
     for r in con.execute("SELECT uid, domain, city_uid, name, lat, lng, racks, last_seen, cur_bikes, cur_free "
                          "FROM stations WHERE spot=1"):

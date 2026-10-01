@@ -72,7 +72,12 @@ class PG:
 def connect(path=DB_PATH):
     """DATABASE_URL (postgres://...) -> Supabase/Postgres, sicer lokalna SQLite datoteka."""
     if os.environ.get("DATABASE_URL"):
-        return PG(os.environ["DATABASE_URL"])
+        try:
+            return PG(os.environ["DATABASE_URL"])
+        except Exception as e:
+            msg = str(e).replace(os.environ["DATABASE_URL"], "***")
+            raise SystemExit(f"Povezava z bazo ni uspela ({type(e).__name__}): {msg}\n"
+                             "Preveri DATABASE_URL: Session pooler (port 5432), vpisano geslo brez [ ].")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     con = sqlite3.connect(path)
     con.execute("PRAGMA journal_mode=WAL")
