@@ -238,7 +238,7 @@ async function load(key) {
 
 function tabs() {
   const items = META.systems.length > 1 ? [{ domain: "all", name: "Vsi sistemi" }, ...META.systems] : META.systems;
-  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.domain}" aria-pressed="${s.domain === current}">${esc(s.name)}</button>`).join("");
+  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.domain}" aria-pressed="${s.domain === current}" title="${esc((s.cities || []).join(", "))}">${esc(s.name)}</button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
 }
 

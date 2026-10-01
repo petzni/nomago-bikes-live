@@ -262,9 +262,12 @@ def main(now=None):
 
     systems = []
     for dom, sysname in con.execute("SELECT domain, name FROM systems ORDER BY domain"):
-        cities = [r[0] for r in con.execute("SELECT name FROM cities WHERE domain=? ORDER BY name", (dom,))]
+        cities = [r[0] for r in con.execute(
+            """SELECT c.name FROM cities c LEFT JOIN stations s ON s.city_uid = c.uid AND s.spot = 1
+               WHERE c.domain=? GROUP BY c.uid, c.name ORDER BY count(s.uid) DESC, c.name""", (dom,))]
         c = con.execute("SELECT avg(lat), avg(lng) FROM stations WHERE domain=?", (dom,)).fetchone()
-        systems.append({"domain": dom, "name": ", ".join(cities) or sysname, "operator": sysname,
+        auto = (cities[0] + (f" +{len(cities) - 1}" if len(cities) > 1 else "")) if cities else sysname
+        systems.append({"domain": dom, "name": C.SYSTEM_NAMES.get(dom) or auto, "cities": cities, "operator": sysname,
                         "lat": c[0], "lng": c[1]})
 
     os.makedirs(C.SITE_DATA, exist_ok=True)
@@ -286,7 +289,7 @@ def main(now=None):
         with open(os.path.join(C.SITE_DATA, f"{k}.json"), "w", encoding="utf-8") as f:
             json.dump(v, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"generated_at": now, "demo": os.environ.get("NB_DEMO") == "1",
-            "systems": [{"domain": s["domain"], "name": s["name"]} for s in systems]}
+            "systems": [{"domain": s["domain"], "name": s["name"], "cities": s["cities"]} for s in systems]}
     with open(os.path.join(C.SITE_DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
     print(f"built {len(out)} files")

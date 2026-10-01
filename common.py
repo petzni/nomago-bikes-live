@@ -11,6 +11,10 @@ API_URL = "https://maps.nextbike.net/maps/nextbike-live.json?domains={domains}"
 DB_PATH = os.environ.get("NB_DB", os.path.join(BASE, "data", "nbstats.sqlite"))
 SITE_DATA = os.environ.get("NB_SITE_DATA", os.path.join(BASE, "site", "data"))
 TZ = "Europe/Ljubljana"
+# Prikazna imena sistemov na strani. Če domene ni tukaj, se uporabi največje mesto (+ število ostalih).
+SYSTEM_NAMES = {
+    # "cn": "Celjska regija",
+}
 
 # Sklepanje voženj
 MIN_TRIP_S = 60            # krajše "vožnje" A->A so ponovni priklopi, ne vožnje
