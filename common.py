@@ -6,15 +6,20 @@ import sqlite3
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 # --- Nastavitve (po potrebi spremeni ali nastavi kot env spremenljivke) ---
-DOMAINS = os.environ.get("NB_DOMAINS", "cc,cn,ce,cf,cd").split(",")
+DOMAINS = os.environ.get("NB_DOMAINS", "cc,cn,ce,cf,cd,cx").split(",")
 API_URL = "https://maps.nextbike.net/maps/nextbike-live.json?domains={domains}"
 DB_PATH = os.environ.get("NB_DB", os.path.join(BASE, "data", "nbstats.sqlite"))
 SITE_DATA = os.environ.get("NB_SITE_DATA", os.path.join(BASE, "site", "data"))
 TZ = "Europe/Ljubljana"
-# Prikazna imena sistemov na strani. Če domene ni tukaj, se uporabi največje mesto (+ število ostalih).
-SYSTEM_NAMES = {
-    # "cn": "Celjska regija",
-}
+# Sistemi, kot jih prikazuje stran. En sistem ima lahko več nextbike domen (GO2GO = ce + cd čez mejo).
+SYSTEMS = [
+    {"key": "kolesce", "name": "KOLESCE", "domains": ["cn"]},
+    {"key": "bicikel", "name": "BICIKEL", "domains": ["cc"]},
+    {"key": "go2go", "name": "GO2GO", "domains": ["ce", "cd"],
+     "note": "Skupni čezmejni sistem Nova Gorica, Šempeter - Vrtojba in Gorizia"},
+    {"key": "zanaprej", "name": "ZANAPREJ", "domains": ["cf"]},
+    {"key": "korobajk", "name": "KOROBAJK", "domains": ["cx"]},
+]
 
 # Sklepanje voženj
 MIN_TRIP_S = 60            # krajše "vožnje" A->A so ponovni priklopi, ne vožnje

@@ -75,7 +75,7 @@ def summarize(trips):
             "avg_min": round(sum(t["dur"] for t in trips) / n / 60, 1) if n else None}
 
 
-def build_system(con, domains, now, name, stations, hist, wx):
+def build_system(con, domains, now, name, stations, hist, wx, cross_border=False):
     ph = ",".join("?" * len(domains))
     now_dt = local(now)
     today0 = day_start(now_dt)
@@ -210,6 +210,14 @@ def build_system(con, domains, now, name, stations, hist, wx):
     heat = [[round(v / max(wd_days[w], 1), 2) for v in row] for w, row in enumerate(heat)]
     weekday = [round(sum(heat[w]), 1) for w in range(7)]
 
+    cross = None
+    if cross_border:
+        xb = lambda ts_list: [t for t in ts_list if t["fu"] in st and t["tu"] in st
+                              and st[t["fu"]]["domain"] != st[t["tu"]]["domain"]]
+        x7 = xb(last7)
+        cross = {"today": len(xb(today)), "last7": len(x7), "km_7d": round(sum(t["km"] for t in x7), 1),
+                 "routes_7d": routes(x7, 5)}
+
     fleet_avg = (sum(r[1] + r[2] for r in fs) / len(fs)) if fs else 0
     days_in_7 = min(7, max((now - first) / DAY, 1))
     return {
@@ -235,6 +243,7 @@ def build_system(con, domains, now, name, stations, hist, wx):
         "empty_share_7d": [{"name": sname(u), "pct": round(p * 100, 1)} for p, u in empty_share[:5] if p > 0],
         "morning_holes": sorted(holes, key=lambda h: -h["days"])[:10],
         "heatmap": heat, "weekday": weekday,
+        "cross_border": cross,
     }
 
 
@@ -260,36 +269,46 @@ def main(now=None):
         hist_rows[uid].append((ts, b))
     hist = {u: StationHistory(r) for u, r in hist_rows.items()}
 
-    systems = []
-    for dom, sysname in con.execute("SELECT domain, name FROM systems ORDER BY domain"):
-        cities = [r[0] for r in con.execute(
-            """SELECT c.name FROM cities c LEFT JOIN stations s ON s.city_uid = c.uid AND s.spot = 1
-               WHERE c.domain=? GROUP BY c.uid, c.name ORDER BY count(s.uid) DESC, c.name""", (dom,))]
-        c = con.execute("SELECT avg(lat), avg(lng) FROM stations WHERE domain=?", (dom,)).fetchone()
-        auto = (cities[0] + (f" +{len(cities) - 1}" if len(cities) > 1 else "")) if cities else sysname
-        systems.append({"domain": dom, "name": C.SYSTEM_NAMES.get(dom) or auto, "cities": cities, "operator": sysname,
-                        "lat": c[0], "lng": c[1]})
+    known = {r[0]: r[1] for r in con.execute("SELECT domain, name FROM systems")}
+    groups = [dict(g) for g in C.SYSTEMS if any(d in known for d in g["domains"])]
+    listed = {d for g in C.SYSTEMS for d in g["domains"]}
+    for d in sorted(set(known) - listed):  # domena, ki je ni v SYSTEMS: prikaži samostojno
+        groups.append({"key": d, "name": "", "domains": [d]})
+    for g in groups:
+        g["domains"] = [d for d in g["domains"] if d in known]
+        ph = ",".join("?" * len(g["domains"]))
+        g["cities"] = [r[0] for r in con.execute(
+            f"""SELECT c.name FROM cities c LEFT JOIN stations s ON s.city_uid = c.uid AND s.spot = 1
+               WHERE c.domain IN ({ph}) GROUP BY c.uid, c.name ORDER BY count(s.uid) DESC, c.name""", g["domains"])]
+        if not g["name"]:
+            g["name"] = (g["cities"][0] + (f" +{len(g['cities']) - 1}" if len(g["cities"]) > 1 else "")
+                         if g["cities"] else known[g["domains"][0]])
+        g["lat"], g["lng"] = con.execute(f"SELECT avg(lat), avg(lng) FROM stations WHERE domain IN ({ph})",
+                                         g["domains"]).fetchone()
 
     os.makedirs(C.SITE_DATA, exist_ok=True)
     out = {}
-    for s in systems:
-        out[s["domain"]] = build_system(con, [s["domain"]], now, s["name"], stations, hist,
-                                        weather(s["lat"], s["lng"]))
-    if len(systems) > 1:
-        allw = weather(sum(s["lat"] or 0 for s in systems) / len(systems),
-                       sum(s["lng"] or 0 for s in systems) / len(systems))
-        out["all"] = build_system(con, [s["domain"] for s in systems], now, "Vsi sistemi", stations, hist, allw)
+    for g in groups:
+        out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, weather(g["lat"], g["lng"]),
+                                     cross_border=len(g["domains"]) > 1)
+        out[g["key"]]["note"] = g.get("note")
+    if len(groups) > 1:
+        pts = [g for g in groups if g["lat"] is not None]
+        allw = weather(sum(g["lat"] for g in pts) / len(pts), sum(g["lng"] for g in pts) / len(pts)) if pts else {}
+        out["all"] = build_system(con, [d for g in groups for d in g["domains"]], now, "Vsi sistemi", stations, hist,
+                                  allw)
         out["all"]["compare"] = [{
-            "domain": d, "name": o["name"], "fleet": o["live"]["fleet"], "stations": o["live"]["stations_total"],
+            "key": k, "name": o["name"], "fleet": o["live"]["fleet"], "stations": o["live"]["stations_total"],
             "per_day": o["last7"]["per_day"], "per_bike_day": o["last7"]["per_bike_day"],
             "avg_min": o["last7"]["avg_min"], "km_7d": o["last7"]["km"], "change": o["last7"]["change"],
-        } for d, o in out.items() if d != "all"]
+        } for k, o in out.items() if k != "all"]
 
     for k, v in out.items():
         with open(os.path.join(C.SITE_DATA, f"{k}.json"), "w", encoding="utf-8") as f:
             json.dump(v, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"generated_at": now, "demo": os.environ.get("NB_DEMO") == "1",
-            "systems": [{"domain": s["domain"], "name": s["name"], "cities": s["cities"]} for s in systems]}
+            "systems": [{"key": g["key"], "name": g["name"], "domains": g["domains"], "cities": g["cities"],
+                         "note": g.get("note")} for g in groups]}
     with open(os.path.join(C.SITE_DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
     print(f"built {len(out)} files")

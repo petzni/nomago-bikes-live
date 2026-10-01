@@ -237,8 +237,8 @@ async function load(key) {
 }
 
 function tabs() {
-  const items = META.systems.length > 1 ? [{ domain: "all", name: "Vsi sistemi" }, ...META.systems] : META.systems;
-  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.domain}" aria-pressed="${s.domain === current}" title="${esc((s.cities || []).join(", "))}">${esc(s.name)}</button>`).join("");
+  const items = META.systems.length > 1 ? [{ key: "all", name: "Vsi sistemi" }, ...META.systems] : META.systems;
+  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.key}" aria-pressed="${s.key === current}" title="${esc(s.note || (s.cities || []).join(", "))}">${esc(s.name)}</button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
 }
 
@@ -294,7 +294,7 @@ function renderMap() {
   const st = DATA.live.stations;
   if (current === "all" && META.systems.length > 1) {
     $("#map").innerHTML = `<div class="maps-multi">${META.systems.map(s => {
-      const sub = st.filter(x => x.domain === s.domain);
+      const sub = st.filter(x => s.domains.includes(x.domain));
       const nb = sub.reduce((a, x) => a + (x.bikes || 0), 0);
       return `<figure><figcaption>${esc(s.name)} <span class="muted num">· ${nf(nb)} koles</span></figcaption>${mapSVG(sub, 260, 200, { small: true, pad: 12 })}</figure>`;
     }).join("")}</div>`;
@@ -313,7 +313,7 @@ function renderBoard() {
     <div class="tile transit"><span class="label">V vožnji</span><span class="big">${nf(L.in_transit)}</span><small>koles je trenutno na cesti</small></div>
     <div class="tile"><span class="label">Aktivna flota</span><span class="big">${nf(L.fleet)}</span><small>na postajah in v vožnji</small></div>
     <div class="tile"><span class="label">Prazne postaje</span><span class="big" style="color:${L.empty_stations ? "var(--critical)" : "inherit"}">${nf(L.empty_stations)}</span><small>od ${nf(L.stations_total)} postaj</small></div>`;
-  $("#now-sub").textContent = `${nf(L.stations_with_bikes)} postaj ima vsaj eno kolo. Stanje ob ${hhmm(L.ts)}.`;
+  $("#now-sub").textContent = `${DATA.note ? DATA.note + ". " : ""}${nf(L.stations_with_bikes)} postaj ima vsaj eno kolo. Stanje ob ${hhmm(L.ts)}.`;
   const age = Math.max(0, Math.round(Date.now() / 1000 - L.ts));
   $("#fresh").textContent = META.demo ? `demo posnetek ob ${hhmm(L.ts)}` : `osveženo pred ${age < 90 ? age + " s" : dur(age)}`;
 }
@@ -321,7 +321,7 @@ function renderBoard() {
 function renderStations() {
   const q = $("#q").value.trim().toLowerCase();
   const multi = current === "all";
-  const names = Object.fromEntries(META.systems.map(s => [s.domain, s.name]));
+  const names = Object.fromEntries(META.systems.flatMap(s => s.domains.map(d => [d, s.name])));
   const rows = DATA.live.stations.filter(s => !q || (s.name || "").toLowerCase().includes(q) || (multi && (names[s.domain] || "").toLowerCase().includes(q)))
     .sort((a, b) => (a.bikes || 0) - (b.bikes || 0) || a.name.localeCompare(b.name, "sl"));
   $("#stations").innerHTML = `<thead><tr><th>Postaja</th><th class="r">Kolesa</th><th class="r">Prosto</th><th style="width:70px"></th></tr></thead><tbody>` +
@@ -400,6 +400,10 @@ function renderHighlights() {
     ["Najdaljše vožnje", "danes, med različnima postajama",
       li(D.longest_today, t => `<li><span>${esc(titleCase(t.from))} → ${esc(titleCase(t.to))}</span><span class="num">${nf(t.km, 1)} km</span></li>`)],
   ];
+  const xb = D.cross_border;
+  if (xb) cards.unshift(["Čez mejo", "vožnje med Slovenijo in Italijo",
+    `<div class="val">${nf(xb.today)} <span class="muted" style="font-size:15px;font-weight:500">danes</span></div><div class="muted">${nf(xb.last7)} voženj v 7 dneh · ${nf(xb.km_7d)} km</div>` +
+    (xb.routes_7d.length ? li(xb.routes_7d, r => `<li><span>${esc(titleCase(r.from))} → ${esc(titleCase(r.to))}</span><span class="num">${nf(r.trips)}</span></li>`) : "")]);
   $("#hl").innerHTML = cards.map(([h, s, body]) => `<div class="panel"><div><h3>${h}</h3><div class="label">${s}</div></div>${body}</div>`).join("");
 }
 
@@ -495,7 +499,7 @@ async function fetchLive() {
     if (!st) return null;
     return { stations: Object.fromEntries(st.map(s => [s.uid, s])), fleet: fl ? Object.fromEntries(fl.map(f => [f.domain, f])) : null };
   }
-  const r = await fetch(LIVE_API + META.systems.map(s => s.domain).join(","), { signal: ctl.signal });
+  const r = await fetch(LIVE_API + META.systems.flatMap(s => s.domains).join(","), { signal: ctl.signal });
   if (!r.ok) return null;
   const j = await r.json(), stations = {};
   for (const c of j.countries || []) for (const city of c.cities || []) for (const p of city.places || [])
@@ -529,8 +533,8 @@ async function init() {
   $("#demo").hidden = !META.demo;
   if (!META.systems.length) { $("#fresh").textContent = "zbiranje podatkov se še ni začelo, poskusi čez nekaj minut"; return; }
   const h = (location.hash || "").slice(1);
-  const keys = ["all", ...META.systems.map(s => s.domain)];
-  current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].domain);
+  const keys = ["all", ...META.systems.map(s => s.key)];
+  current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].key);
   tabs();
   $("#q").addEventListener("input", renderStations);
   await select(current);

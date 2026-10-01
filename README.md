@@ -1,6 +1,16 @@
 # Nomago Bikes v živo
 
-Javna statistična stran za sisteme Nomago Bikes (nextbike domene `cc, cn, ce, cf, cd`), po vzoru [bajs.informacija.hr](https://bajs.informacija.hr). Vse teče na brezplačnih storitvah.
+Javna statistična stran za sisteme Nomago Bikes, po vzoru [bajs.informacija.hr](https://bajs.informacija.hr). Vse teče na brezplačnih storitvah.
+
+| Sistem | nextbike domena | Občine |
+|---|---|---|
+| KOLESCE | `cn` | Braslovče, Celje, Laško, Polzela, Šentjur, Sevnica, Slovenske Konjice, Štore, Vojnik, Žalec, Zreče |
+| BICIKEL | `cc` | Dobrova - Polhov Gradec, Komenda, Ljubljana, Medvode, Mengeš, Škofljica, Trzin |
+| GO2GO | `ce` + `cd` | Nova Gorica, Šempeter - Vrtojba + Gorizia (en čezmejni sistem, stran šteje tudi vožnje čez mejo) |
+| ZANAPREJ | `cf` | Zagorje ob Savi |
+| KOROBAJK | `cx` | Prevalje, Ravne na Koroškem |
+
+Imena in združevanje domen so v `SYSTEMS` v `common.py`. Domene, ki jih Supabase zbira, so v tabeli `nb.config` (nova domena = nova migracija, glej `…_nb_add_korobajk.sql`).
 
 ```
 nextbike-live.json
@@ -42,7 +52,7 @@ Zbiranje zdaj teče samo od sebe vsaki 2 minuti. Spremembe baze dodajaj kot nove
    - *Variables* → `SUPABASE_URL` (npr. `https://abcd.supabase.co`) in `SUPABASE_ANON_KEY` (Settings → API → anon/publishable key). Z njima stran vsako minuto osveži stanje postaj.
 3. **Actions → Statistika in objava strani → Run workflow**.
 
-Stran je na `https://petzni.github.io/nomago-bikes-live/`. Dokler `DATABASE_URL` ni nastavljen, se ob pushu objavi demo s simuliranimi podatki.
+Stran je na `https://petzni.github.io/nomago-bikes-live/`. Brez `DATABASE_URL` se stran ne objavi.
 
 ### Kaj je javno
 

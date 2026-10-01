@@ -23,11 +23,12 @@ NAMES = ["Glavni trg", "Železniška postaja", "Avtobusna postaja", "Zdravstveni
          "Center za socialno delo", "Tehnološki park", "Kampus", "Pošta", "Cerkev", "Most",
          "Rekreacijski center", "Gasilski dom", "Policija", "Sodišče"]
 CITIES = [  # domena, ime, center, postaj, voženj/dan (delavnik, lepo vreme), razpršenost km
-    ("cc", "Demo mesto CC", (46.236, 15.268), 34, 520, 2.6),
-    ("cn", "Demo mesto CN", (45.956, 13.648), 22, 260, 2.2),
-    ("ce", "Demo mesto CE", (46.360, 15.112), 28, 380, 2.4),
-    ("cf", "Demo mesto CF", (46.552, 15.645), 18, 150, 1.8),
-    ("cd", "Demo mesto CD", (45.804, 15.165), 14, 110, 1.6),
+    ("cc", "Demo mesto CC", (46.051, 14.506), 34, 520, 2.6),
+    ("cn", "Demo mesto CN", (46.236, 15.268), 28, 380, 2.4),
+    ("ce", "Demo mesto CE", (45.956, 13.648), 22, 260, 2.2),
+    ("cf", "Demo mesto CF", (46.131, 14.996), 10, 90, 1.2),
+    ("cd", "Demo mesto CD", (45.940, 13.622), 8, 70, 1.0),
+    ("cx", "Demo mesto CX", (46.545, 14.955), 12, 90, 1.5),
 ]
 HOUR = [0.2, 0.1, 0.1, 0.1, 0.2, 0.6, 2.2, 5.5, 6.0, 4.0, 4.2, 5.0,
         6.2, 6.4, 7.5, 8.6, 8.2, 7.2, 6.0, 4.6, 3.2, 2.2, 1.3, 0.6]
@@ -59,6 +60,7 @@ class City:
         self.transit = []  # (end_ts, bike, station)
         self.service = []  # (back_ts, bike)
         self.created = 0  # simulirane vožnje (za preverjanje)
+        self.partner = None
 
     def dist(self, a, b):
         return C.haversine_km(a["lat"], a["lng"], b["lat"], b["lng"])
@@ -83,7 +85,10 @@ class City:
                 break
             a = rnd.choices(src, weights=[s["pop"] for s in src])[0]
             bike = a["bikes"].pop(rnd.randrange(len(a["bikes"])))
-            if rnd.random() < 0.12:
+            if self.partner and rnd.random() < 0.08:  # čezmejna vožnja (GO2GO)
+                b = rnd.choice(self.partner.stations)
+                mins = max(5, self.dist(a, b) * 1.3 / 12 * 60)
+            elif rnd.random() < 0.12:
                 b, mins = a, rnd.uniform(6, 50)
             else:
                 w = [s["pop"] * math.exp(-self.dist(a, s) / 1.6) if s is not a else 0 for s in self.stations]
@@ -123,6 +128,8 @@ def main():
     a = ap.parse_args()
     rnd = random.Random(a.seed)
     cities = [City(rnd, 900 + i, *c) for i, c in enumerate(CITIES)]
+    by = {c.domain: c for c in cities}
+    by["ce"].partner, by["cd"].partner = by["cd"], by["ce"]
     con = C.connect()
     end = (a.end or int(time.time())) // a.step * a.step
     ts = end - int(a.days * 86400)
