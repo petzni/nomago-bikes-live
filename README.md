@@ -58,6 +58,15 @@ Stran je na `https://petzni.github.io/nomago-bikes-live/`. Brez `DATABASE_URL` s
 
 Tabele v shemi `nb` niso dostopne prek Supabase API-ja. Javna sta le pogleda `nb_live_stations` (stanje postaj) in `nb_live_fleet` (število koles na voljo/v vožnji), samo za branje. Vožnje s številkami koles so dostopne le z `DATABASE_URL`. Na strani so samo agregati, relacije z manj kot 3 vožnjami pa so skrite.
 
+## Interne analize po partnerjih
+
+Postaje sistema BICIKEL so razdeljene po partnerjih v `partners/bicikel.csv` (`postaja;partner`). Interni pogled odpreš z naslovom
+`https://petzni.github.io/nomago-bikes-live/#interno` (ali neposredno npr. `#interno-bicikel-btc`). Pod zavihki se pojavi izbira partnerja, sistem pa dobi tabelo »Primerjava partnerjev«.
+
+Postaje, ki jih ni v tabeli, so v skupini »Brez partnerja«. Ime postaje se mora ujemati z imenom v nextbike (velike/male črke, presledki in pomišljaji niso pomembni). Za drug sistem dodaj datoteko in vnos v `PARTNER_FILES` v `common.py`.
+
+Interni pogled ni zaščiten: povezava ni objavljena, a JSON podatki so dostopni vsakomur, ki pozna naslov.
+
 ## Razvoj lokalno (brez Supabase)
 
 ```bash

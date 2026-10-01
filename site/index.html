@@ -50,6 +50,9 @@ header { display: grid; gap: 14px }
 .tabs button { font: 600 14.5px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line);
   border-radius: 999px; padding: 7px 15px; cursor: pointer; white-space: nowrap }
 .tabs button:hover { border-color: var(--accent) }
+.ptabs button { font-size: 13.5px; padding: 5px 12px }
+.plink { color: var(--ink); text-decoration-color: var(--accent); text-underline-offset: 3px }
+.ptabs::before { content: "Partner"; font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); align-self: center; margin-right: 4px }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 .demo { border: 1px dashed var(--warn); color: var(--ink); background: color-mix(in srgb, var(--warn) 10%, var(--surface));
@@ -130,6 +133,8 @@ footer p { margin: 0 }
       <div class="fresh"><span class="pulse"></span><span id="fresh">nalagam podatke …</span></div>
     </div>
     <nav class="tabs" id="tabs" aria-label="Izbira sistema"></nav>
+    <nav class="tabs ptabs" id="ptabs" aria-label="Izbira partnerja" hidden></nav>
+    <div class="demo" id="internal" hidden><b>Interni pogled.</b> Analize po partnerjih. Povezava ni objavljena na strani, podatki pa so javno dostopni vsakomur, ki pozna naslov.</div>
     <div class="demo" id="demo" hidden><b>Demo podatki.</b> Številke, postaje in kolesa so simulirani za predogled strani. Ko zbiralnik teče na strežniku, se tu prikažejo pravi podatki iz nextbike API-ja.</div>
   </header>
 
@@ -164,7 +169,7 @@ footer p { margin: 0 }
   </section>
 
   <section aria-labelledby="h-cmp" id="cmp-sec" hidden>
-    <div class="sec-head"><h2 id="h-cmp">Primerjava mest</h2><p>Zadnjih 7 dni. Vožnje na kolo na dan so najboljše merilo izkoriščenosti flote ne glede na velikost sistema.</p></div>
+    <div class="sec-head"><h2 id="h-cmp">Primerjava mest</h2><p id="cmp-sub">Zadnjih 7 dni. Vožnje na kolo na dan so najboljše merilo izkoriščenosti flote ne glede na velikost sistema.</p></div>
     <div class="panel scroll"><table id="cmp" style="min-width:640px"></table></div>
   </section>
 
@@ -207,7 +212,8 @@ const hhmm = ts => new Date(ts * 1000).toLocaleTimeString("sl-SI", { hour: "2-di
 const dur = s => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
 const titleCase = s => { const [n, ...rest] = String(s || "").split(" · "); return [n.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()), ...rest].join(" · "); };
 
-let META = null, DATA = null, current = "all";
+let META = null, DATA = null, current = "all", INTERNAL = false;
+const parentOf = k => { for (const s of META.systems) if ((s.partners || []).some(p => p.key === k)) return s.key; return k; };
 const cache = {};
 
 /* tooltip */
@@ -238,14 +244,25 @@ async function load(key) {
 
 function tabs() {
   const items = META.systems.length > 1 ? [{ key: "all", name: "Vsi sistemi" }, ...META.systems] : META.systems;
-  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.key}" aria-pressed="${s.key === current}" title="${esc(s.note || (s.cities || []).join(", "))}">${esc(s.name)}</button>`).join("");
+  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.key}" aria-pressed="${s.key === parentOf(current)}" title="${esc(s.note || (s.cities || []).join(", "))}">${esc(s.name)}</button>`).join("");
   $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
+}
+
+function ptabs() {
+  const sys = META.systems.find(s => s.key === parentOf(current));
+  const parts = INTERNAL && sys && sys.partners ? sys.partners : null;
+  $("#ptabs").hidden = !parts;
+  if (!parts) return;
+  const items = [{ key: sys.key, name: "Vse postaje" }, ...parts];
+  $("#ptabs").innerHTML = items.map(p => `<button type="button" data-k="${p.key}" aria-pressed="${p.key === current}">${esc(p.name)}</button>`).join("");
+  $("#ptabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
 }
 
 async function select(k) {
   current = k;
-  try { history.replaceState(null, "", "#" + k); } catch (e) {}
-  $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k));
+  try { history.replaceState(null, "", "#" + (INTERNAL ? "interno-" : "") + k); } catch (e) {}
+  $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === parentOf(k)));
+  ptabs();
   DATA = await load(k);
   render();
 }
@@ -308,6 +325,17 @@ function renderMap() {
 
 function renderBoard() {
   const L = DATA.live;
+  if (DATA.partner) {
+    $("#board").innerHTML = `
+    <div class="tile avail"><span class="label">Na voljo</span><span class="big">${nf(L.available)}</span><small>koles na postajah partnerja</small></div>
+    <div class="tile"><span class="label">Izposoje danes</span><span class="big">${nf(L.dep_today)}</span><small>s postaj partnerja</small></div>
+    <div class="tile"><span class="label">Vračila danes</span><span class="big">${nf(L.arr_today)}</span><small>na postaje partnerja</small></div>
+    <div class="tile"><span class="label">Prazne postaje</span><span class="big" style="color:${L.empty_stations ? "var(--critical)" : "inherit"}">${nf(L.empty_stations)}</span><small>od ${nf(L.stations_total)} postaj</small></div>`;
+    $("#now-sub").textContent = `Postaje: ${DATA.partner.station_names.join(", ")}. Stanje ob ${hhmm(L.ts)}.`;
+    const age = Math.max(0, Math.round(Date.now() / 1000 - L.ts));
+    $("#fresh").textContent = `osveženo pred ${age < 90 ? age + " s" : dur(age)}`;
+    return;
+  }
   $("#board").innerHTML = `
     <div class="tile avail"><span class="label">Na voljo</span><span class="big">${nf(L.available)}</span><small>koles na postajah</small></div>
     <div class="tile transit"><span class="label">V vožnji</span><span class="big">${nf(L.in_transit)}</span><small>koles je trenutno na cesti</small></div>
@@ -370,6 +398,21 @@ function bindArea(series) {
 function renderStats() {
   const D = DATA, l7 = D.last7;
   const ch = l7.change == null ? "" : ` · ${l7.change >= 0 ? "▲" : "▼"} ${nf(Math.abs(l7.change), 1)} % na teden`;
+  if (D.partner) {
+    const P = D.partner;
+    const cells = [
+      [nf(D.today.trips), `voženj s/na postaje partnerja danes (včeraj ${nf(D.yesterday.trips)})`],
+      [nf(P.dep_7d), "izposoj v 7 dneh"],
+      [nf(P.arr_7d), "vračil v 7 dneh"],
+      [nf(P.per_station_day, 1), "obiskov na postajo na dan"],
+      [`${nf(l7.avg_min, 1)} min`, "povprečna vožnja"],
+      [P.empty_pct == null ? "–" : `${nf(P.empty_pct, 1)} %`, "časa brez koles (povprečje postaj)"],
+      [`${nf(l7.km)} km`, "prevoženih v 7 dneh"],
+      [`${nf(l7.co2_kg)} kg`, "manj CO₂ v 7 dneh"],
+    ];
+    $("#stats").innerHTML = cells.map(([v, t]) => `<div class="stat"><b>${v}</b><span>${t}</span></div>`).join("");
+    return;
+  }
   const cells = [
     [nf(D.today.trips), `voženj danes (včeraj ${nf(D.yesterday.trips)})`],
     [`${nf(D.today.km)} km`, `prevoženih danes`],
@@ -422,7 +465,7 @@ function renderDaily() {
     const x = l + i * bw + 1, w = Math.max(bw - 2, 2), y = Y(d.trips), h = Math.max(Y(0) - y, 0);
     const wd = (new Date(d.date + "T12:00:00").getDay() + 6) % 7;
     const wx = d.tmax != null ? `<br>${nf(d.tmax, 0)} °C${d.rain ? ` · ${nf(d.rain, 1)} mm dežja` : ""}` : "";
-    const tipHtml = `<b>${fmtDate(d.date)}${i === today ? " (do zdaj)" : ""}</b><br>${nf(d.trips)} voženj · ${nf(d.km)} km<br>povprečno ${nf(d.avg_min, 1)} min · največ ${d.peak_in_transit} hkrati${wx}`;
+    const tipHtml = `<b>${fmtDate(d.date)}${i === today ? " (do zdaj)" : ""}</b><br>${nf(d.trips)} voženj · ${nf(d.km)} km<br>povprečno ${nf(d.avg_min, 1)} min${d.peak_in_transit != null ? ` · največ ${d.peak_in_transit} hkrati` : ""}${wx}`;
     const rr = Math.min(4, w / 2, h);
     const path = h > 0 ? `M${x},${Y(0)}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${Y(0)}Z` : "";
     const lab = (i % Math.ceil(days.length / 10) === 0 || i === today) ? `<text x="${x + w / 2}" y="${H - 14}" text-anchor="middle">${new Date(d.date + "T12:00:00").getDate()}. ${new Date(d.date + "T12:00:00").getMonth() + 1}.</text>` : "";
@@ -467,6 +510,20 @@ function renderTables() {
 }
 
 function renderCompare() {
+  const pc = INTERNAL ? DATA.partners_compare : null;
+  if (pc) {
+    $("#cmp-sec").hidden = false;
+    $("#h-cmp").textContent = "Primerjava partnerjev";
+    $("#cmp-sub").textContent = "Zadnjih 7 dni. Obiski = izposoje + vračila na postajah partnerja. Klik na partnerja odpre njegovo analizo.";
+    const rows = [...pc].sort((a, b) => (b.per_station_day || 0) - (a.per_station_day || 0));
+    const m = Math.max(...rows.map(r => r.per_station_day || 0), .01);
+    $("#cmp").innerHTML = `<thead><tr><th>Partner</th><th class="r">Postaje</th><th class="r">Obiskov / postajo / dan</th><th style="width:110px"></th><th class="r">Izposoje</th><th class="r">Vračila</th><th class="r">Čas brez koles</th><th class="r">Izposoje, teden</th></tr></thead><tbody>${rows.map(r =>
+      `<tr><td><a href="#interno-${r.key}" data-k="${r.key}" class="plink"><b>${esc(r.name)}</b></a></td><td class="r">${nf(r.stations)}</td><td class="r">${nf(r.per_station_day, 1)}</td><td><div class="bar-mini"><i style="width:${(r.per_station_day || 0) / m * 100}%"></i></div></td><td class="r">${nf(r.dep_7d)}</td><td class="r">${nf(r.arr_7d)}</td><td class="r">${r.empty_pct == null ? "–" : nf(r.empty_pct, 1) + " %"}</td><td class="r">${chg(r.change)}</td></tr>`).join("")}</tbody>`;
+    $("#cmp").querySelectorAll(".plink").forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.k); scrollTo({ top: 0 }); });
+    return;
+  }
+  $("#h-cmp").textContent = "Primerjava mest";
+  $("#cmp-sub").textContent = "Zadnjih 7 dni. Vožnje na kolo na dan so najboljše merilo izkoriščenosti flote ne glede na velikost sistema.";
   const c = DATA.compare;
   $("#cmp-sec").hidden = !c;
   if (!c) return;
@@ -478,7 +535,8 @@ function renderCompare() {
 
 function render() {
   renderBoard(); renderMap(); renderStations();
-  $("#transit24").innerHTML = areaChart(DATA.live.series_24h); bindArea(DATA.live.series_24h);
+  $("#transit24").innerHTML = DATA.partner ? `<p class="muted" style="margin:0">Kolesa v vožnji niso vezana na postaje, zato jih za partnerja ne prikazujemo.</p>` : areaChart(DATA.live.series_24h);
+  if (!DATA.partner) bindArea(DATA.live.series_24h);
   renderStats(); renderHighlights(); renderCompare(); renderDaily(); renderHeat(); renderTables();
   $("#gen").textContent = `Statistika izračunana ${new Date(DATA.generated_at * 1000).toLocaleString("sl-SI")}.`;
 }
@@ -532,8 +590,10 @@ async function init() {
   }
   $("#demo").hidden = !META.demo;
   if (!META.systems.length) { $("#fresh").textContent = "zbiranje podatkov se še ni začelo, poskusi čez nekaj minut"; return; }
-  const h = (location.hash || "").slice(1);
-  const keys = ["all", ...META.systems.map(s => s.key)];
+  let h = (location.hash || "").slice(1);
+  if (h.startsWith("interno")) { INTERNAL = true; h = h.slice(8); }
+  $("#internal").hidden = !INTERNAL;
+  const keys = ["all", ...META.systems.flatMap(s => [s.key, ...(s.partners || []).map(p => p.key)])];
   current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].key);
   tabs();
   $("#q").addEventListener("input", renderStations);

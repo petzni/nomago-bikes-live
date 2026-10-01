@@ -3,6 +3,8 @@
 Zaženi za vsakim zbiranjem ali vsakih nekaj minut:  python3 builder.py
 """
 import bisect
+import csv
+import re
 import json
 import os
 import sys
@@ -75,7 +77,8 @@ def summarize(trips):
             "avg_min": round(sum(t["dur"] for t in trips) / n / 60, 1) if n else None}
 
 
-def build_system(con, domains, now, name, stations, hist, wx, cross_border=False):
+def build_system(con, domains, now, name, stations, hist, wx, cross_border=False, only=None):
+    """only: množica uid postaj (analiza za partnerja); vožnje štejejo, če se začnejo ali končajo na teh postajah."""
     ph = ",".join("?" * len(domains))
     now_dt = local(now)
     today0 = day_start(now_dt)
@@ -85,13 +88,17 @@ def build_system(con, domains, now, name, stations, hist, wx, cross_border=False
     trips = [dict(zip(("bike", "fu", "tu", "start", "end", "dur", "km"), r)) for r in con.execute(
         f"""SELECT bike, from_uid, to_uid, start_ts, end_ts, dur_s, km FROM trips
             WHERE kind='trip' AND domain IN ({ph}) AND start_ts >= ? ORDER BY start_ts""", (*domains, since))]
-    st = {uid: s for uid, s in stations.items() if s["domain"] in domains}
+    st = st_all = {uid: s for uid, s in stations.items() if s["domain"] in domains}
+    if only is not None:
+        st = {u: s for u, s in st_all.items() if u in only}
+        trips = [t for t in trips if t["fu"] in st or t["tu"] in st]
     multi = len(domains) > 1
 
     def sname(uid):
-        if uid not in st:
+        if uid not in st_all:
             return "prosto parkirano"
-        return f'{st[uid]["name"]} · {st[uid]["city_name"]}' if multi else st[uid]["name"]
+        s = st_all[uid]
+        return f'{s["name"]} · {s["city_name"]}' if multi else s["name"]
 
     # --- trenutno stanje ---
     fs = con.execute(f"""SELECT ts, sum(available), sum(in_transit) FROM fleet_series
@@ -131,7 +138,8 @@ def build_system(con, domains, now, name, stations, hist, wx, cross_border=False
         if d < first_day:
             continue
         k = d.isoformat()
-        row = {"date": k, **summarize(by_day.get(k, [])), "peak_in_transit": peak_it.get(k, 0)}
+        row = {"date": k, **summarize(by_day.get(k, [])),
+               "peak_in_transit": peak_it.get(k, 0) if only is None else None}
         if k in wx:
             row.update(wx[k])
         daily.append(row)
@@ -145,7 +153,8 @@ def build_system(con, domains, now, name, stations, hist, wx, cross_border=False
     eco.update({"co2_kg": round(eco["km"] * C.CO2_KG_PER_KM), "kcal": round(eco["km"] * C.KCAL_PER_KM)})
 
     def routes(ts_list, n=5, min_n=C.PUBLIC_MIN_ROUTE_TRIPS):
-        c = Counter((t["fu"], t["tu"]) for t in ts_list if t["fu"] in st and t["tu"] in st)
+        c = Counter((t["fu"], t["tu"]) for t in ts_list if t["fu"] in st_all and t["tu"] in st_all
+                    and (t["fu"] in st or t["tu"] in st))
         return [{"from": sname(a), "to": sname(b), "loop": a == b, "trips": k}
                 for (a, b), k in c.most_common(n) if k >= min_n]
 
@@ -218,7 +227,23 @@ def build_system(con, domains, now, name, stations, hist, wx, cross_border=False
         cross = {"today": len(xb(today)), "last7": len(x7), "km_7d": round(sum(t["km"] for t in x7), 1),
                  "routes_7d": routes(x7, 5)}
 
-    fleet_avg = (sum(r[1] + r[2] for r in fs) / len(fs)) if fs else 0
+    fleet_avg = (sum(r[1] + r[2] for r in fs) / len(fs)) if fs and only is None else 0
+    partner = None
+    if only is not None:  # flota in kolesa v vožnji niso vezana na postaje
+        live.update({"available": sum(s["bikes"] or 0 for s in live_st), "in_transit": None, "fleet": None,
+                     "series_24h": [],
+                     "dep_today": sum(1 for t in today if t["fu"] in st),
+                     "arr_today": sum(1 for t in today if t["tu"] in st)})
+        d7 = sum(1 for t in last7 if t["fu"] in st)
+        dp = sum(1 for t in prev7 if t["fu"] in st)
+        a7 = sum(1 for t in last7 if t["tu"] in st)
+        ndays = min(7, max((now - first) / DAY, 1))
+        shares = [p for p, u in empty_share]
+        partner = {"stations": len(st), "dep_7d": d7, "arr_7d": a7,
+                   "per_station_day": round((d7 + a7) / ndays / len(st), 1) if st else None,
+                   "empty_pct": round(sum(shares) / len(shares) * 100, 1) if shares else None,
+                   "change": round((d7 - dp) / dp * 100, 1) if dp else None,
+                   "station_names": sorted(s["name"] for s in st.values())}
     days_in_7 = min(7, max((now - first) / DAY, 1))
     return {
         "name": name, "domains": domains, "generated_at": now,
@@ -244,7 +269,40 @@ def build_system(con, domains, now, name, stations, hist, wx, cross_border=False
         "morning_holes": sorted(holes, key=lambda h: -h["days"])[:10],
         "heatmap": heat, "weekday": weekday,
         "cross_border": cross,
+        "partner": partner,
     }
+
+
+def _norm(name):
+    return re.sub(r"[\s\-–.,]+", " ", (name or "").lower()).strip()
+
+
+def build_partners(con, g, now, stations, hist, out, path):
+    """Analize po partnerjih (interno): postaje sistema razdeli po tabeli postaja;partner."""
+    mapping = {}
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f, delimiter=";"):
+            if row.get("postaja") and row.get("partner"):
+                mapping[_norm(row["postaja"])] = row["partner"].strip()
+    by_partner, seen = defaultdict(set), set()
+    for uid, s in stations.items():
+        if s["domain"] in g["domains"]:
+            p = mapping.get(_norm(s["name"]))
+            if p:
+                seen.add(_norm(s["name"]))
+            by_partner[p or C.NO_PARTNER].add(uid)
+    for name in sorted(set(mapping) - seen):
+        print(f"opozorilo: postaje '{name}' iz {os.path.basename(path)} ni med postajami sistema {g['name']}")
+    result = []
+    for partner in sorted(by_partner, key=lambda p: (p == C.NO_PARTNER, p.lower())):
+        key = f'{g["key"]}-{re.sub(r"[^a-z0-9]+", "-", _norm(partner).translate(str.maketrans("čšžćđ", "cszcd"))).strip("-")}'
+        o = build_system(con, g["domains"], now, f'{g["name"]} · {partner}', stations, hist, {},
+                         only=by_partner[partner])
+        o["parent"] = g["key"]
+        out[key] = o
+        result.append({"key": key, "name": partner, **{k: v for k, v in o["partner"].items() if k != "station_names"}})
+    out[g["key"]]["partners_compare"] = result
+    return [{"key": r["key"], "name": r["name"]} for r in result]
 
 
 def main(now=None):
@@ -292,6 +350,9 @@ def main(now=None):
         out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, weather(g["lat"], g["lng"]),
                                      cross_border=len(g["domains"]) > 1)
         out[g["key"]]["note"] = g.get("note")
+        pfile = C.PARTNER_FILES.get(g["key"])
+        if pfile:
+            g["partners"] = build_partners(con, g, now, stations, hist, out, os.path.join(C.BASE, pfile))
     if len(groups) > 1:
         pts = [g for g in groups if g["lat"] is not None]
         allw = weather(sum(g["lat"] for g in pts) / len(pts), sum(g["lng"] for g in pts) / len(pts)) if pts else {}
@@ -308,7 +369,7 @@ def main(now=None):
             json.dump(v, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"generated_at": now, "demo": os.environ.get("NB_DEMO") == "1",
             "systems": [{"key": g["key"], "name": g["name"], "domains": g["domains"], "cities": g["cities"],
-                         "note": g.get("note")} for g in groups]}
+                         "note": g.get("note"), "partners": g.get("partners")} for g in groups]}
     with open(os.path.join(C.SITE_DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
     print(f"built {len(out)} files")

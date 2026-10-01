@@ -27,6 +27,10 @@ LOOP_MIN_S = 180           # A->A vožnja mora trajati vsaj 3 min
 SERVICE_GAP_S = 6 * 3600   # kolo, odsotno > 6 h, je bilo najverjetneje v servisu
 REBALANCE_MIN_BIKES = 3    # >=3 kolesa z iste postaje na isto postajo v istem intervalu = prerazporeditev
 
+# Interne analize po partnerjih: datoteka postaja;partner za posamezen sistem
+PARTNER_FILES = {"bicikel": "partners/bicikel.csv"}
+NO_PARTNER = "Brez partnerja"
+
 # Ocene
 DETOUR_FACTOR = 1.3        # zračna razdalja * faktor = ocena prevožene poti
 LOOP_SPEED_KMH = 10        # za A->A vožnje: ocena km iz trajanja
