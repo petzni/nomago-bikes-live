@@ -52,6 +52,8 @@ header { display: grid; gap: 14px }
 .tabs button:hover { border-color: var(--accent) }
 .ptabs button { font-size: 13.5px; padding: 5px 12px }
 .plink { color: var(--ink); text-decoration-color: var(--accent); text-underline-offset: 3px }
+.ctabs::before { content: "Občine" !important }
+.ctabs { flex-wrap: wrap; overflow: visible }
 .ptabs::before { content: "Partner"; font: 500 11.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); align-self: center; margin-right: 4px }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
@@ -134,6 +136,7 @@ footer p { margin: 0 }
     </div>
     <nav class="tabs" id="tabs" aria-label="Izbira sistema"></nav>
     <nav class="tabs ptabs" id="ptabs" aria-label="Izbira partnerja" hidden></nav>
+    <nav class="tabs ptabs ctabs" id="ctabs" aria-label="Izbira občin" hidden></nav>
     <div class="demo" id="internal" hidden><b>Interni pogled.</b> Analize po partnerjih. Povezava ni objavljena na strani, podatki pa so javno dostopni vsakomur, ki pozna naslov.</div>
     <div class="demo" id="demo" hidden><b>Demo podatki.</b> Številke, postaje in kolesa so simulirani za predogled strani. Ko zbiralnik teče na strežniku, se tu prikažejo pravi podatki iz nextbike API-ja.</div>
   </header>
@@ -212,7 +215,8 @@ const hhmm = ts => new Date(ts * 1000).toLocaleTimeString("sl-SI", { hour: "2-di
 const dur = s => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
 const titleCase = s => { const [n, ...rest] = String(s || "").split(" · "); return [n.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()), ...rest].join(" · "); };
 
-let META = null, DATA = null, current = "all", INTERNAL = false;
+let META = null, DATA = null, BASE = null, current = "all", INTERNAL = false;
+let selCities = new Set();
 const parentOf = k => { for (const s of META.systems) if ((s.partners || []).some(p => p.key === k)) return s.key; return k; };
 const cache = {};
 
@@ -263,8 +267,94 @@ async function select(k) {
   try { history.replaceState(null, "", "#" + (INTERNAL ? "interno-" : "") + k); } catch (e) {}
   $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === parentOf(k)));
   ptabs();
-  DATA = await load(k);
+  const prev = BASE && BASE.domains ? BASE.domains.join() : null;
+  BASE = await load(k);
+  if (prev !== BASE.domains.join() || !BASE.cube) selCities = new Set();
+  applyView();
+}
+
+function applyView() {
+  DATA = selCities.size && BASE.cube ? deriveCities(BASE, selCities) : BASE;
+  ctabs();
   render();
+}
+
+function ctabs() {
+  const C = BASE && BASE.cube;
+  $("#ctabs").hidden = !C;
+  if (!C) return;
+  const cities = [...new Set(Object.values(C.station_city))].sort((a, b) => a.localeCompare(b, "sl"));
+  $("#ctabs").innerHTML = `<button type="button" data-c="" aria-pressed="${!selCities.size}">Vse</button>` +
+    cities.map(c => `<button type="button" data-c="${esc(c)}" aria-pressed="${selCities.has(c)}">${esc(c)}</button>`).join("");
+  $("#ctabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const c = b.dataset.c;
+    if (!c) selCities = new Set();
+    else if (selCities.has(c)) selCities.delete(c);
+    else selCities.add(c);
+    if (selCities.size === cities.length) selCities = new Set();
+    applyView();
+  });
+}
+
+/* Pogled za izbrane občine, izračunan v brskalniku iz agregatov po postajah (BASE.cube). */
+function deriveCities(D, sel) {
+  const C = D.cube, cityOf = u => C.station_city[u], inSel = u => sel.has(cityOf(u));
+  const ps = C.per_station, ids = Object.keys(ps).filter(inSel);
+  const names = Object.fromEntries(D.live.stations.map(s => [s.uid, s.name]));
+  const nm = u => names[u] || "?";
+  const sts = D.live.stations.filter(s => inSel(s.uid));
+  // dnevi
+  const byDay = C.days.map(() => ({ n: 0, sec: 0, km: 0, arr: 0 }));
+  for (const [u, i, n, sec, km, arr] of C.station_day) if (inSel(u)) { const r = byDay[i]; r.n += n; r.sec += sec; r.km += km; r.arr += arr; }
+  const wx = Object.fromEntries(D.daily.map(d => [d.date, d]));
+  const daily = C.days.map((date, i) => ({ date, trips: byDay[i].n, km: Math.round(byDay[i].km * 10) / 10,
+    avg_min: byDay[i].n ? Math.round(byDay[i].sec / byDay[i].n / 6) / 10 : null, peak_in_transit: null,
+    tmax: wx[date]?.tmax, rain: wx[date]?.rain })).filter(d => d.date >= D.since);
+  const sum = rows => { const n = rows.reduce((a, d) => a + d.trips, 0), km = rows.reduce((a, d) => a + d.km, 0);
+    const sec = rows.reduce((a, d) => a + (d.avg_min || 0) * 60 * d.trips, 0);
+    return { trips: n, km: Math.round(km * 10) / 10, avg_min: n ? Math.round(sec / n / 6) / 10 : null }; };
+  const today = daily.length ? sum(daily.slice(-1)) : sum([]), yday = daily.length > 1 ? sum(daily.slice(-2, -1)) : sum([]);
+  const l7rows = daily.slice(-7), l7 = sum(l7rows);
+  const dep7 = ids.reduce((a, u) => a + ps[u].dep7, 0), prev7 = ids.reduce((a, u) => a + ps[u].prev7, 0);
+  const arr7 = C.days.slice(-7).reduce((a, _, j) => a + byDay[C.days.length - 7 + j].arr, 0);
+  const ndays = Math.max(1, Math.min(7, l7rows.length));
+  // ure
+  const heat = Array.from({ length: 7 }, () => Array(24).fill(0)), ht = Array(24).fill(0), hy = Array(24).fill(0);
+  for (const u of ids) {
+    (ps[u].heat || []).forEach((v, i) => heat[Math.floor(i / 24)][i % 24] += v);
+    (ps[u].h_today || []).forEach((v, i) => ht[i] += v);
+    (ps[u].h_yday || []).forEach((v, i) => hy[i] += v);
+  }
+  heat.forEach(r => r.forEach((v, i) => r[i] = Math.round(v * 100) / 100));
+  const peakH = hy.indexOf(Math.max(...hy));
+  const empties = ids.filter(u => ps[u].empty_pct != null);
+  const frozenU = ids.filter(u => ps[u].empty_s).sort((a, b) => ps[b].empty_s - ps[a].empty_s)[0];
+  const top = (arr, n) => arr.slice(0, n);
+  return {
+    ...D, cube: null, compare: null, cross_border: null, iron_horse: null, scope: "izbranih občin",
+    live: { ...D.live, stations: sts, available: sts.reduce((a, s) => a + (s.bikes || 0), 0), in_transit: null, fleet: null,
+      series_24h: [], stations_total: sts.length, stations_with_bikes: sts.filter(s => s.bikes).length,
+      empty_stations: sts.filter(s => !s.bikes).length, dep_today: today.trips,
+      arr_today: daily.length ? byDay[C.days.length - 1].arr : 0 },
+    daily, today, yesterday: yday,
+    last7: { ...l7, co2_kg: Math.round(l7.km * 0.15), kcal: Math.round(l7.km * 30), per_day: Math.round(dep7 / ndays * 10) / 10,
+      per_bike_day: null, change: prev7 ? Math.round((dep7 - prev7) / prev7 * 1000) / 10 : null },
+    routes_7d: top(C.od_7d.filter(([a]) => inSel(a)).sort((x, y) => y[2] - x[2]), 10).map(([a, b, n]) => ({ from: nm(a), to: nm(b), loop: a === b, trips: n })),
+    longest_today: top(C.longest_today.filter(([a]) => inSel(a)), 3).map(([a, b, km, min]) => ({ from: nm(a), to: nm(b), km, min })),
+    hot_24h: top(ids.filter(u => ps[u].moves24).sort((a, b) => ps[b].moves24 - ps[a].moves24), 5).map(u => ({ name: nm(u), moves: ps[u].moves24 })),
+    frozen: frozenU ? { name: nm(frozenU), empty_s: ps[frozenU].empty_s } : null,
+    night_owl: { trips: ht.slice(2, 6).reduce((a, b) => a + b, 0), avg_min: null },
+    peak_hour_yesterday: Math.max(...hy) > 0 ? { hour: peakH, trips: hy[peakH] } : null,
+    top_stations_7d: top(ids.filter(u => ps[u].dep7).sort((a, b) => ps[b].dep7 - ps[a].dep7), 8).map(u => ({ name: nm(u), trips: ps[u].dep7, prev: ps[u].prev7,
+      change: ps[u].prev7 ? Math.round((ps[u].dep7 - ps[u].prev7) / ps[u].prev7 * 1000) / 10 : null })),
+    empty_share_7d: top(empties.filter(u => ps[u].empty_pct > 0).sort((a, b) => ps[b].empty_pct - ps[a].empty_pct), 5).map(u => ({ name: nm(u), pct: ps[u].empty_pct })),
+    morning_holes: top(ids.filter(u => ps[u].hole_days).sort((a, b) => ps[b].hole_days - ps[a].hole_days), 10).map(u => ({ name: nm(u), days: ps[u].hole_days })),
+    heatmap: heat,
+    partner: { station_names: sts.map(s => s.name), dep_7d: dep7, arr_7d: arr7,
+      per_station_day: ids.length ? Math.round((dep7 + arr7) / ndays / ids.length * 10) / 10 : null,
+      empty_pct: empties.length ? Math.round(empties.reduce((a, u) => a + ps[u].empty_pct, 0) / empties.length * 10) / 10 : null,
+      change: prev7 ? Math.round((dep7 - prev7) / prev7 * 1000) / 10 : null },
+  };
 }
 
 /* ------- risanje ------- */
@@ -327,11 +417,12 @@ function renderBoard() {
   const L = DATA.live;
   if (DATA.partner) {
     $("#board").innerHTML = `
-    <div class="tile avail"><span class="label">Na voljo</span><span class="big">${nf(L.available)}</span><small>koles na postajah partnerja</small></div>
-    <div class="tile"><span class="label">Izposoje danes</span><span class="big">${nf(L.dep_today)}</span><small>s postaj partnerja</small></div>
-    <div class="tile"><span class="label">Vračila danes</span><span class="big">${nf(L.arr_today)}</span><small>na postaje partnerja</small></div>
+    <div class="tile avail"><span class="label">Na voljo</span><span class="big">${nf(L.available)}</span><small>koles na postajah ${DATA.scope}</small></div>
+    <div class="tile"><span class="label">Izposoje danes</span><span class="big">${nf(L.dep_today)}</span><small>s postaj ${DATA.scope}</small></div>
+    <div class="tile"><span class="label">Vračila danes</span><span class="big">${nf(L.arr_today)}</span><small>na postaje ${DATA.scope}</small></div>
     <div class="tile"><span class="label">Prazne postaje</span><span class="big" style="color:${L.empty_stations ? "var(--critical)" : "inherit"}">${nf(L.empty_stations)}</span><small>od ${nf(L.stations_total)} postaj</small></div>`;
-    $("#now-sub").textContent = `Postaje: ${DATA.partner.station_names.join(", ")}. Stanje ob ${hhmm(L.ts)}.`;
+    $("#now-sub").textContent = DATA.scope === "partnerja" ? `Postaje: ${DATA.partner.station_names.join(", ")}. Stanje ob ${hhmm(L.ts)}.`
+      : `${[...selCities].join(", ")}: ${nf(L.stations_total)} postaj. Vožnje štejemo v občini, kjer se začnejo. Stanje ob ${hhmm(L.ts)}.`;
     const age = Math.max(0, Math.round(Date.now() / 1000 - L.ts));
     $("#fresh").textContent = `osveženo pred ${age < 90 ? age + " s" : dur(age)}`;
     return;
@@ -401,7 +492,7 @@ function renderStats() {
   if (D.partner) {
     const P = D.partner;
     const cells = [
-      [nf(D.today.trips), `voženj s/na postaje partnerja danes (včeraj ${nf(D.yesterday.trips)})`],
+      [nf(D.today.trips), `${D.scope === "partnerja" ? "voženj s/na postaje partnerja" : "izposoj v izbranih občinah"} danes (včeraj ${nf(D.yesterday.trips)})`],
       [nf(P.dep_7d), "izposoj v 7 dneh"],
       [nf(P.arr_7d), "vračil v 7 dneh"],
       [nf(P.per_station_day, 1), "obiskov na postajo na dan"],
@@ -435,7 +526,7 @@ function renderHighlights() {
     ["Ledena postaja", "najdlje prazna trenutno",
       D.frozen ? `<div class="val">${dur(D.frozen.empty_s)}</div><div>${esc(titleCase(D.frozen.name))}</div>` : `<p class="muted" style="margin:0">Trenutno ni prazne postaje.</p>`],
     ["Delovni konj", "kolo z največ vožnjami danes",
-      ih ? `<div class="val">${ih.trips} voženj</div><div class="muted">kolo #${esc(ih.bike)} · ${nf(ih.km, 1)} km</div>` : `<p class="muted" style="margin:0">Danes še ni voženj.</p>`],
+      ih ? `<div class="val">${ih.trips} voženj</div><div class="muted">kolo #${esc(ih.bike)} · ${nf(ih.km, 1)} km</div>` : `<p class="muted" style="margin:0">${D.scope === "izbranih občin" ? "Na voljo samo za celoten sistem." : "Danes še ni voženj."}</p>`],
     ["Nočne ptice", "vožnje med 2. in 6. uro danes",
       `<div class="val">${nf(D.night_owl.trips)}</div><div class="muted">${D.night_owl.avg_min ? `povprečno ${nf(D.night_owl.avg_min, 0)} min` : "&nbsp;"}</div>`],
     ["Špica včeraj", "ura z največ izposojami",
@@ -535,7 +626,7 @@ function renderCompare() {
 
 function render() {
   renderBoard(); renderMap(); renderStations();
-  $("#transit24").innerHTML = DATA.partner ? `<p class="muted" style="margin:0">Kolesa v vožnji niso vezana na postaje, zato jih za partnerja ne prikazujemo.</p>` : areaChart(DATA.live.series_24h);
+  $("#transit24").innerHTML = DATA.partner ? `<p class="muted" style="margin:0">Kolesa v vožnji niso vezana na postaje, zato jih za ${DATA.scope} ne prikazujemo.</p>` : areaChart(DATA.live.series_24h);
   if (!DATA.partner) bindArea(DATA.live.series_24h);
   renderStats(); renderHighlights(); renderCompare(); renderDaily(); renderHeat(); renderTables();
   $("#gen").textContent = `Statistika izračunana ${new Date(DATA.generated_at * 1000).toLocaleString("sl-SI")}.`;
@@ -571,6 +662,7 @@ async function liveRefresh() {
     for (const D of Object.values(cache)) {
       let av = 0, empty = 0, withB = 0;
       for (const s of D.live.stations) { const p = L.stations[s.uid]; if (p) { s.bikes = p.bikes; s.free = p.free; } av += s.bikes || 0; s.bikes ? withB++ : empty++; }
+      if (D.partner) { Object.assign(D.live, { available: av, empty_stations: empty, stations_with_bikes: withB }); continue; }
       let transit = D.live.in_transit, ts = Math.floor(Date.now() / 1000);
       if (L.fleet) {
         const f = D.domains.map(d => L.fleet[d]).filter(Boolean);
@@ -578,7 +670,7 @@ async function liveRefresh() {
       }
       Object.assign(D.live, { available: av, in_transit: transit, empty_stations: empty, stations_with_bikes: withB, fleet: av + transit, ts });
     }
-    renderBoard(); renderMap(); renderStations();
+    if (selCities.size) applyView(); else { renderBoard(); renderMap(); renderStations(); }
   } catch (e) { /* CORS ali omrežje */ }
 }
 
@@ -599,7 +691,7 @@ async function init() {
   $("#q").addEventListener("input", renderStations);
   await select(current);
   setInterval(async () => {  // novi izračuni builderja
-    try { for (const k of Object.keys(cache)) delete cache[k]; DATA = await load(current); render(); } catch (e) {}
+    try { for (const k of Object.keys(cache)) delete cache[k]; BASE = await load(current); applyView(); } catch (e) {}
   }, 120000);
   liveRefresh(); setInterval(liveRefresh, 60000);
   setInterval(() => { if (DATA) renderBoard(); }, 15000);

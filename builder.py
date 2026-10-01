@@ -277,6 +277,94 @@ def _norm(name):
     return re.sub(r"[\s\-–.,]+", " ", (name or "").lower()).strip()
 
 
+def build_cube(con, g, now, stations, hist):
+    """Agregati po postajah, iz katerih stran sama izračuna pogled za poljubno izbiro občin.
+    Vožnja pripada občini, v kateri se začne. Brez številk koles in brez relacij z manj kot 3 vožnjami."""
+    doms = g["domains"]
+    ph = ",".join("?" * len(doms))
+    now_dt = local(now)
+    today0 = day_start(now_dt)
+    d0 = today0 - timedelta(days=29)
+    days = [(d0 + timedelta(days=i)).date().isoformat() for i in range(30)]
+    di = {d: i for i, d in enumerate(days)}
+    st = {u: s for u, s in stations.items() if s["domain"] in doms}
+    trips = con.execute(f"""SELECT from_uid, to_uid, start_ts, end_ts, dur_s, km FROM trips
+        WHERE kind='trip' AND domain IN ({ph}) AND start_ts >= ?""", (*doms, ts_of(d0) - 7 * DAY)).fetchall()
+    day = defaultdict(lambda: [0, 0, 0.0, 0])  # (uid, dan) -> [izposoje, sekunde, km, vračila]
+    hour_t, hour_y, heat = defaultdict(lambda: [0] * 24), defaultdict(lambda: [0] * 24), defaultdict(lambda: [0] * 168)
+    od7, dep7, prev7, moves24, longest = Counter(), Counter(), Counter(), Counter(), []
+    t_today = ts_of(today0)
+    wd_days = Counter(datetime.fromisoformat(d).weekday() for d in days)
+    for fu, tu, a, b, dur, km in trips:
+        la = local(a)
+        k = la.date().isoformat()
+        if fu in st and k in di:
+            r = day[(fu, di[k])]
+            r[0] += 1; r[1] += dur; r[2] += km
+            heat[fu][la.weekday() * 24 + la.hour] += 1
+        if tu in st and k in di:
+            day[(tu, di[k])][3] += 1
+        if fu in st:
+            if a >= t_today:
+                hour_t[fu][la.hour] += 1
+            elif a >= t_today - DAY:
+                hour_y[fu][la.hour] += 1
+            if a >= now - 7 * DAY:
+                dep7[fu] += 1
+            elif a >= now - 14 * DAY:
+                prev7[fu] += 1
+            if a >= now - DAY:
+                moves24[fu] += 1
+        if tu in st and b >= now - DAY:
+            moves24[tu] += 1
+        if a >= now - 7 * DAY and fu in st and tu in st:
+            od7[(fu, tu)] += 1
+        if a >= t_today and fu in st and tu in st and fu != tu:
+            longest.append([fu, tu, round(km, 1), round(dur / 60)])
+    longest.sort(key=lambda x: -x[2])
+
+    per_station = {}
+    first_full_day = (today0 - timedelta(days=14)).date()
+    for uid, s in st.items():
+        h = hist.get(uid)
+        m = {"dep7": dep7[uid], "prev7": prev7[uid], "moves24": moves24[uid]}
+        if h:
+            segs = h.segments(now - 7 * DAY, now, now)
+            tot = sum(e - b for b, e, _ in segs)
+            if tot >= 2 * DAY:
+                m["empty_pct"] = round(sum(e - b for b, e, v in segs if v == 0) / tot * 100, 1)
+            if s["bikes"] == 0 and h.ts:
+                i = len(h.v) - 1
+                while i > 0 and h.v[i - 1] == 0:
+                    i -= 1
+                m["empty_s"] = now - h.ts[i]
+            streak, d = 0, today0 if now_dt.hour >= 9 else today0 - timedelta(days=1)
+            while d.date() >= first_full_day:
+                sg = h.segments(ts_of(d.replace(hour=8)), ts_of(d.replace(hour=9)), now)
+                if sg and min(v for _, _, v in sg) < 2:
+                    streak += 1
+                    d -= timedelta(days=1)
+                else:
+                    break
+            if streak >= 3:
+                m["hole_days"] = streak
+        if uid in heat:
+            m["heat"] = [round(v / max(wd_days[i // 24], 1), 2) for i, v in enumerate(heat[uid])]
+        if uid in hour_t:
+            m["h_today"] = hour_t[uid]
+        if uid in hour_y:
+            m["h_yday"] = hour_y[uid]
+        per_station[uid] = m
+    return {
+        "days": days,
+        "station_city": {u: s["city_name"] for u, s in st.items()},
+        "per_station": per_station,
+        "station_day": [[u, i, *[round(x, 1) if isinstance(x, float) else x for x in r]] for (u, i), r in day.items()],
+        "od_7d": [[a, b, n] for (a, b), n in od7.items() if n >= C.PUBLIC_MIN_ROUTE_TRIPS],
+        "longest_today": longest[:30],
+    }
+
+
 def build_partners(con, g, now, stations, hist, out, path):
     """Analize po partnerjih (interno): postaje sistema razdeli po tabeli postaja;partner."""
     mapping = {}
@@ -299,6 +387,7 @@ def build_partners(con, g, now, stations, hist, out, path):
         o = build_system(con, g["domains"], now, f'{g["name"]} · {partner}', stations, hist, {},
                          only=by_partner[partner])
         o["parent"] = g["key"]
+        o["scope"] = "partnerja"
         out[key] = o
         result.append({"key": key, "name": partner, **{k: v for k, v in o["partner"].items() if k != "station_names"}})
     out[g["key"]]["partners_compare"] = result
@@ -350,6 +439,8 @@ def main(now=None):
         out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, weather(g["lat"], g["lng"]),
                                      cross_border=len(g["domains"]) > 1)
         out[g["key"]]["note"] = g.get("note")
+        if len(g["cities"]) > 1:
+            out[g["key"]]["cube"] = build_cube(con, g, now, stations, hist)
         pfile = C.PARTNER_FILES.get(g["key"])
         if pfile:
             g["partners"] = build_partners(con, g, now, stations, hist, out, os.path.join(C.BASE, pfile))

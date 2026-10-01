@@ -7,6 +7,7 @@ in jih po vrsti pošlje zbiralniku. Uporabno za razvoj strani:
     NB_DB=data/demo.sqlite NB_DEMO=1 python3 builder.py
 """
 import argparse
+from collections import defaultdict
 import math
 import os
 import random
@@ -52,7 +53,8 @@ class City:
             self.stations.append({
                 "uid": uid0 * 1000 + i, "number": f"{uid0}{i:03d}", "name": names[i].upper(),
                 "lat": center[0] + dlat, "lng": center[1] + dlng, "racks": rnd.randint(8, 16),
-                "pop": rnd.lognormvariate(0, 0.7) * (2.5 if i < 4 else 1), "bikes": []})
+                "pop": rnd.lognormvariate(0, 0.7) * (2.5 if i < 4 else 1), "bikes": [],
+                "city": (0 if r < spread * 0.45 else 1 + (a > math.pi)) if n >= 20 else 0})
         nb = int(sum(s["racks"] for s in self.stations) * 0.55)
         for b in range(nb):
             s = rnd.choice(self.stations)
@@ -110,13 +112,16 @@ class City:
                 self.service.append((ts + rnd.uniform(1, 3) * 86400, s["bikes"].pop()))
 
     def snapshot(self):
-        places = [{"uid": s["uid"], "lat": s["lat"], "lng": s["lng"], "name": s["name"], "spot": True,
-                   "number": int(s["number"]), "bikes": len(s["bikes"]), "bike_racks": s["racks"],
-                   "free_racks": max(s["racks"] - len(s["bikes"]), 0), "bike_numbers": list(s["bikes"])}
-                  for s in self.stations]
+        cities = defaultdict(list)
+        for s in self.stations:
+            cities[s["city"]].append({
+                "uid": s["uid"], "lat": s["lat"], "lng": s["lng"], "name": s["name"], "spot": True,
+                "number": int(s["number"]), "bikes": len(s["bikes"]), "bike_racks": s["racks"],
+                "free_racks": max(s["racks"] - len(s["bikes"]), 0), "bike_numbers": list(s["bikes"])})
+        names = [self.name, self.name.replace("mesto", "občina") + " Sever", self.name.replace("mesto", "občina") + " Jug"]
         return {"domain": self.domain, "name": "Nomago Bikes (demo)", "country": "SI",
-                "cities": [{"uid": self.uid, "name": self.name, "lat": self.stations[0]["lat"],
-                            "lng": self.stations[0]["lng"], "places": places}]}
+                "cities": [{"uid": self.uid * 10 + k, "name": names[k], "lat": places[0]["lat"],
+                            "lng": places[0]["lng"], "places": places} for k, places in sorted(cities.items())]}
 
 
 def main():
