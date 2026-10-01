@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Nomago Bikes v živo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,700;125,800&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Postavitev: dispečerska tabla. Zgoraj živo stanje + karta postaj, spodaj zgodovina in razpoložljivost. */
+:root {
+  --bg: #f3f6f5; --surface: #ffffff; --ink: #11201c; --muted: #5a6a66; --line: #dbe3e0; --grid: #e9efed;
+  --accent: #0d7a6a; --transit: #c85a14; --critical: #c42b2b; --warn: #a86b00;
+  --s1: #d9efe9; --s2: #a4dacd; --s3: #62bba9; --s4: #23937f; --s5: #0b6457;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
+  --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
+  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
+  --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
+  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark }
+
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--body); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 20px 56px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px }
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; font-stretch: 112% }
+h1 { font-size: clamp(28px, 4.4vw, 44px); font-weight: 800; font-stretch: 125%; letter-spacing: -.01em; line-height: 1.05 }
+h2 { font-size: 22px; font-weight: 700 }
+h3 { font-size: 15px; font-weight: 700 }
+.label { font: 500 11.5px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted) }
+.muted { color: var(--muted) }
+.num { font-variant-numeric: tabular-nums }
+section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0 }
+.sec-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px }
+.sec-head p { margin: 0; color: var(--muted); font-size: 14.5px; max-width: 62ch }
+
+header { display: grid; gap: 14px }
+.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px }
+.fresh { display: flex; align-items: center; gap: 8px; font: 500 12.5px var(--mono); color: var(--muted) }
+.pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 var(--accent); animation: pulse 2s infinite }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent) } 70% { box-shadow: 0 0 0 9px transparent } 100% { box-shadow: 0 0 0 0 transparent } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none } }
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin }
+.tabs button { font: 600 14.5px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 15px; cursor: pointer; white-space: nowrap }
+.tabs button:hover { border-color: var(--accent) }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.demo { border: 1px dashed var(--warn); color: var(--ink); background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  border-radius: 8px; padding: 10px 14px; font-size: 14.5px }
+.demo b { color: var(--warn) }
+
+/* živo stanje */
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 10px }
+.tile { padding: 16px 18px; display: grid; gap: 4px; border-left: 1px solid var(--line); min-width: 0 }
+.tile:first-child { border-left: 0 }
+.big { font: 800 clamp(30px, 4vw, 46px)/1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums }
+.tile small { color: var(--muted); font-size: 13.5px }
+.tile.transit .big { color: var(--transit) }
+.tile.avail .big { color: var(--accent) }
+@media (max-width: 760px) { .board { grid-template-columns: 1fr 1fr } .tile:nth-child(3) { border-left: 0 } .tile:nth-child(n+3) { border-top: 1px solid var(--line) } }
+
+.live-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px }
+@media (max-width: 900px) { .live-grid { grid-template-columns: 1fr } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; align-content: start }
+.panel > * { min-width: 0 }
+.map svg { width: 100%; height: auto; display: block }
+.maps-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px }
+.maps-multi figure { margin: 0; display: grid; gap: 4px }
+.maps-multi figcaption { font: 600 13.5px var(--body) }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); align-items: center }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px }
+.st-list { max-height: 420px; overflow: auto; border-top: 1px solid var(--line) }
+.st-list table { width: 100% }
+.search { font: 15px var(--body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); width: 100% }
+.bar-mini { height: 6px; border-radius: 3px; background: var(--grid); overflow: hidden; min-width: 50px }
+.bar-mini i { display: block; height: 100%; background: var(--accent); border-radius: 3px }
+tr.empty td:first-child { color: var(--critical) }
+
+table { border-collapse: collapse; font-size: 14.5px }
+th { font: 500 11px var(--mono); letter-spacing: .07em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--surface) }
+td { padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: middle }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums }
+.scroll { overflow-x: auto }
+.up { color: var(--accent) } .down { color: var(--critical) }
+
+/* številke dneva */
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 2px solid var(--ink) }
+.stat { padding: 12px 14px 12px 0; display: grid; gap: 2px; border-bottom: 1px solid var(--line) }
+.stat b { font: 700 26px/1.1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums }
+.stat span { font-size: 13.5px; color: var(--muted) }
+@media (max-width: 760px) { .stats { grid-template-columns: 1fr 1fr } }
+
+.hl { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px }
+.hl .panel h3 { display: flex; justify-content: space-between; gap: 8px }
+.hl ol { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; font-size: 14.5px }
+.hl li { display: flex; justify-content: space-between; gap: 10px }
+.hl li span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.hl .val { font: 700 30px/1.1 var(--display); font-stretch: 112% }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 18px }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible }
+.chart text { fill: var(--muted); font: 11px var(--mono) }
+.hm-wrap { overflow-x: auto }
+.pill { display: inline-block; font: 600 12px var(--body); padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor }
+.pill.high { color: var(--critical) } .pill.mid { color: var(--warn) } .pill.low { color: var(--muted) }
+
+#tip { position: fixed; pointer-events: none; z-index: 10; background: var(--ink); color: var(--bg); font-size: 13px; line-height: 1.4;
+  padding: 7px 10px; border-radius: 6px; max-width: 240px; box-shadow: 0 4px 14px rgba(0,0,0,.18) }
+#tip b { font-weight: 600 }
+footer { border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 14px; display: grid; gap: 6px; max-width: 80ch }
+footer p { margin: 0 }
+.err { color: var(--critical) }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="top">
+      <div>
+        <div class="label">Javni sistemi izposoje koles</div>
+        <h1>Nomago Bikes v živo</h1>
+      </div>
+      <div class="fresh"><span class="pulse"></span><span id="fresh">nalagam podatke …</span></div>
+    </div>
+    <nav class="tabs" id="tabs" aria-label="Izbira sistema"></nav>
+    <div class="demo" id="demo" hidden><b>Demo podatki.</b> Številke, postaje in kolesa so simulirani za predogled strani. Ko zbiralnik teče na strežniku, se tu prikažejo pravi podatki iz nextbike API-ja.</div>
+  </header>
+
+  <section aria-labelledby="h-now">
+    <div class="sec-head"><h2 id="h-now">Trenutno stanje</h2><p id="now-sub"></p></div>
+    <div class="board" id="board"></div>
+    <div class="live-grid">
+      <div class="panel map">
+        <div class="sec-head"><h3>Postaje</h3>
+          <div class="legend"><span><i class="sw" style="background:var(--s5)"></i>polna</span><span><i class="sw" style="background:var(--s3)"></i>polovična</span><span><i class="sw" style="background:var(--s1);border:1px solid var(--s3)"></i>skoraj prazna</span><span><i class="sw" style="background:transparent;border:2px solid var(--critical)"></i>prazna</span></div>
+        </div>
+        <div id="map"></div>
+        <div class="label" id="map-note"></div>
+      </div>
+      <div class="panel">
+        <div class="sec-head"><h3>Kolesa v vožnji, zadnjih 24 ur</h3></div>
+        <div class="chart" id="transit24"></div>
+        <input class="search" id="q" type="search" placeholder="Poišči postajo" aria-label="Poišči postajo">
+        <div class="st-list"><table id="stations"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-day">
+    <div class="sec-head"><h2 id="h-day">Dan v številkah</h2><p>Vožnje sklepamo iz premikov koles med postajami. Kilometri so ocena.</p></div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section aria-labelledby="h-hl">
+    <div class="sec-head"><h2 id="h-hl">Izpostavljeno</h2></div>
+    <div class="hl" id="hl"></div>
+  </section>
+
+  <section aria-labelledby="h-cmp" id="cmp-sec" hidden>
+    <div class="sec-head"><h2 id="h-cmp">Primerjava mest</h2><p>Zadnjih 7 dni. Vožnje na kolo na dan so najboljše merilo izkoriščenosti flote ne glede na velikost sistema.</p></div>
+    <div class="panel scroll"><table id="cmp" style="min-width:640px"></table></div>
+  </section>
+
+  <section aria-labelledby="h-trend">
+    <div class="sec-head"><h2 id="h-trend">Zadnjih 30 dni</h2><p id="trend-sub"></p></div>
+    <div class="panel chart" id="daily"></div>
+    <div class="two">
+      <div class="panel"><h3>Kdaj se vozimo</h3><div class="label">Povprečno voženj na uro, po dnevih v tednu</div><div class="hm-wrap chart" id="heat"></div></div>
+      <div class="panel"><h3>Najbolj prometne postaje</h3><div class="label">Izposoje v zadnjih 7 dneh in sprememba glede na prejšnji teden</div><div class="scroll"><table id="topst" style="width:100%"></table></div></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-av">
+    <div class="sec-head"><h2 id="h-av">Razpoložljivost</h2><p>Kje uporabnik najtežje najde kolo. To je seznam za prerazporejanje.</p></div>
+    <div class="two">
+      <div class="panel"><h3>Delež časa brez koles</h3><div class="label">Zadnjih 7 dni</div><table id="emptyshare" style="width:100%"></table></div>
+      <div class="panel"><h3>Jutranje luknje</h3><div class="label">Manj kot 2 kolesi med 8. in 9. uro, zaporednih dni</div><table id="holes" style="width:100%"></table></div>
+    </div>
+    <div class="panel"><h3>Najpogostejše relacije</h3><div class="label">Zadnjih 7 dni · relacije z manj kot 3 vožnjami niso prikazane</div><div class="scroll"><table id="routes" style="width:100%;min-width:480px"></table></div></div>
+  </section>
+
+  <footer>
+    <p><b>Kako štejemo.</b> Vsaki 2 minuti preberemo javni nextbike vir. Ko kolo izgine s postaje in se pojavi drugje, to štejemo kot vožnjo. Premiki 3 ali več koles hkrati med istima postajama so prerazporeditve, odsotnosti nad 6 ur pa servis; oboje izločimo.</p>
+    <p>Kilometri so zračna razdalja × 1,3, za vožnje z vrnitvijo na isto postajo pa ocena iz trajanja. CO₂ predpostavlja 150 g na km, ki bi ga sicer prevozili z avtom.</p>
+    <p id="gen"></p>
+  </footer>
+</div>
+<div id="tip" hidden></div>
+
+<script src="config.js"></script>
+<script>
+(() => {
+const LIVE_API = "https://maps.nextbike.net/maps/nextbike-live.json?domains=";
+const $ = s => document.querySelector(s);
+const nf = (v, d = 0) => v == null ? "–" : Number(v).toLocaleString("sl-SI", { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const DAYS = ["pon", "tor", "sre", "čet", "pet", "sob", "ned"];
+const fmtDate = iso => { const d = new Date(iso + "T12:00:00"); return `${DAYS[(d.getDay() + 6) % 7]} ${d.getDate()}. ${d.getMonth() + 1}.`; };
+const hhmm = ts => new Date(ts * 1000).toLocaleTimeString("sl-SI", { hour: "2-digit", minute: "2-digit" });
+const dur = s => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.round(s % 3600 / 60)} min`;
+const titleCase = s => { const [n, ...rest] = String(s || "").split(" · "); return [n.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()), ...rest].join(" · "); };
+
+let META = null, DATA = null, current = "all";
+const cache = {};
+
+/* tooltip */
+const tip = $("#tip");
+function showTip(e, html) { tip.innerHTML = html; tip.hidden = false; moveTip(e); }
+function moveTip(e) {
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + 14, y = e.clientY + 14;
+  if (x + w > innerWidth - 8) x = e.clientX - w - 14;
+  if (y + h > innerHeight - 8) y = e.clientY - h - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.hidden = true; }
+function bindTips(root) {
+  root.querySelectorAll("[data-tip]").forEach(el => {
+    el.addEventListener("pointerenter", e => showTip(e, el.dataset.tip));
+    el.addEventListener("pointermove", moveTip);
+    el.addEventListener("pointerleave", hideTip);
+  });
+}
+
+async function getJSON(p) { const r = await fetch(p, { cache: "no-store" }); if (!r.ok) throw new Error(p); return r.json(); }
+
+async function load(key) {
+  if (!cache[key]) cache[key] = await getJSON(`data/${key}.json`);
+  return cache[key];
+}
+
+function tabs() {
+  const items = META.systems.length > 1 ? [{ domain: "all", name: "Vsi sistemi" }, ...META.systems] : META.systems;
+  $("#tabs").innerHTML = items.map(s => `<button type="button" data-k="${s.domain}" aria-pressed="${s.domain === current}">${esc(s.name)}</button>`).join("");
+  $("#tabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
+}
+
+async function select(k) {
+  current = k;
+  try { history.replaceState(null, "", "#" + k); } catch (e) {}
+  $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === k));
+  DATA = await load(k);
+  render();
+}
+
+/* ------- risanje ------- */
+function fillColor(s) {
+  const cap = Math.max(s.racks || 0, (s.bikes || 0) + (s.free || 0), 1);
+  const r = (s.bikes || 0) / cap;
+  if (!s.bikes) return null;
+  return r < .2 ? "var(--s1)" : r < .45 ? "var(--s2)" : r < .7 ? "var(--s3)" : r < .9 ? "var(--s4)" : "var(--s5)";
+}
+
+function mapSVG(stations, W, H, opt = {}) {
+  const pts = stations.filter(s => s.lat && s.lng);
+  if (!pts.length) return `<p class="muted">Ni postaj.</p>`;
+  const lat0 = pts.reduce((a, s) => a + s.lat, 0) / pts.length;
+  const kx = 111.32 * Math.cos(lat0 * Math.PI / 180), ky = 110.57;
+  const xs = pts.map(s => s.lng * kx), ys = pts.map(s => -s.lat * ky);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = opt.pad ?? 18, spanX = Math.max(maxX - minX, .5), spanY = Math.max(maxY - minY, .5);
+  const sc = Math.min((W - 2 * pad) / spanX, (H - 2 * pad) / spanY);
+  const ox = (W - spanX * sc) / 2, oy = (H - spanY * sc) / 2;
+  const P = (x, y) => [ox + (x - minX) * sc, oy + (y - minY) * sc];
+  let g = "";
+  // 1-km mreža
+  const step = sc; // 1 km v px
+  if (step > 14) {
+    for (let x = ox % step; x < W; x += step) g += `<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="var(--grid)" />`;
+    for (let y = oy % step; y < H; y += step) g += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--grid)" />`;
+  }
+  const rMax = opt.small ? 6 : 10, rMin = opt.small ? 2.5 : 4;
+  const marks = pts.map((s, i) => {
+    const [x, y] = P(xs[i], ys[i]);
+    const r = rMin + (rMax - rMin) * Math.min((s.racks || 10) / 20, 1);
+    const f = fillColor(s);
+    const tipHtml = `<b>${esc(titleCase(s.name))}</b><br>${s.bikes ?? 0} koles · ${s.free ?? "–"} prostih mest`;
+    return f
+      ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${f}" stroke="var(--surface)" stroke-width="2" data-tip="${esc(tipHtml)}" data-uid="${s.uid}"/>`
+      : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r - 1).toFixed(1)}" fill="var(--surface)" stroke="var(--critical)" stroke-width="2.2" data-tip="${esc(tipHtml)}" data-uid="${s.uid}"/>`;
+  }).join("");
+  const bar = step > 20 && step < W * .6 ? `<g transform="translate(${W - pad - step},${H - 10})"><line x1="0" x2="${step}" y1="0" y2="0" stroke="var(--muted)" stroke-width="2"/><text x="${step / 2}" y="-5" text-anchor="middle" style="fill:var(--muted);font:11px var(--mono)">1 km</text></g>` : "";
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Shematska karta postaj">${g}${marks}${bar}</svg>`;
+}
+
+function renderMap() {
+  const st = DATA.live.stations;
+  if (current === "all" && META.systems.length > 1) {
+    $("#map").innerHTML = `<div class="maps-multi">${META.systems.map(s => {
+      const sub = st.filter(x => x.domain === s.domain);
+      const nb = sub.reduce((a, x) => a + (x.bikes || 0), 0);
+      return `<figure><figcaption>${esc(s.name)} <span class="muted num">· ${nf(nb)} koles</span></figcaption>${mapSVG(sub, 260, 200, { small: true, pad: 12 })}</figure>`;
+    }).join("")}</div>`;
+    $("#map-note").textContent = "Vsako mesto v svojem merilu";
+  } else {
+    $("#map").innerHTML = mapSVG(st, 720, 470);
+    $("#map-note").textContent = "Velikost kroga = število stojal · mreža 1 km";
+  }
+  bindTips($("#map"));
+}
+
+function renderBoard() {
+  const L = DATA.live;
+  $("#board").innerHTML = `
+    <div class="tile avail"><span class="label">Na voljo</span><span class="big">${nf(L.available)}</span><small>koles na postajah</small></div>
+    <div class="tile transit"><span class="label">V vožnji</span><span class="big">${nf(L.in_transit)}</span><small>koles je trenutno na cesti</small></div>
+    <div class="tile"><span class="label">Aktivna flota</span><span class="big">${nf(L.fleet)}</span><small>na postajah in v vožnji</small></div>
+    <div class="tile"><span class="label">Prazne postaje</span><span class="big" style="color:${L.empty_stations ? "var(--critical)" : "inherit"}">${nf(L.empty_stations)}</span><small>od ${nf(L.stations_total)} postaj</small></div>`;
+  $("#now-sub").textContent = `${nf(L.stations_with_bikes)} postaj ima vsaj eno kolo. Stanje ob ${hhmm(L.ts)}.`;
+  const age = Math.max(0, Math.round(Date.now() / 1000 - L.ts));
+  $("#fresh").textContent = META.demo ? `demo posnetek ob ${hhmm(L.ts)}` : `osveženo pred ${age < 90 ? age + " s" : dur(age)}`;
+}
+
+function renderStations() {
+  const q = $("#q").value.trim().toLowerCase();
+  const multi = current === "all";
+  const names = Object.fromEntries(META.systems.map(s => [s.domain, s.name]));
+  const rows = DATA.live.stations.filter(s => !q || (s.name || "").toLowerCase().includes(q) || (multi && (names[s.domain] || "").toLowerCase().includes(q)))
+    .sort((a, b) => (a.bikes || 0) - (b.bikes || 0) || a.name.localeCompare(b.name, "sl"));
+  $("#stations").innerHTML = `<thead><tr><th>Postaja</th><th class="r">Kolesa</th><th class="r">Prosto</th><th style="width:70px"></th></tr></thead><tbody>` +
+    rows.map(s => {
+      const cap = Math.max(s.racks || 0, (s.bikes || 0) + (s.free || 0), 1);
+      return `<tr class="${s.bikes ? "" : "empty"}"><td>${esc(titleCase(s.name))}${multi ? ` <span class="muted">· ${esc(names[s.domain] || "")}</span>` : ""}</td><td class="r">${s.bikes ?? 0}</td><td class="r muted">${s.free ?? "–"}</td><td><div class="bar-mini"><i style="width:${Math.round((s.bikes || 0) / cap * 100)}%"></i></div></td></tr>`;
+    }).join("") + `</tbody>`;
+}
+
+function areaChart(series) {
+  if (!series.length) return `<p class="muted">Še ni dovolj podatkov.</p>`;
+  const W = 460, H = 150, l = 30, r = 8, t = 10, b = 22;
+  const t0 = series[0][0], t1 = series[series.length - 1][0];
+  const max = Math.max(5, ...series.map(s => s[2]));
+  const nice = Math.ceil(max / 5) * 5;
+  const X = ts => l + (ts - t0) / Math.max(t1 - t0, 1) * (W - l - r), Y = v => t + (1 - v / nice) * (H - t - b);
+  const line = series.map((s, i) => `${i ? "L" : "M"}${X(s[0]).toFixed(1)},${Y(s[2]).toFixed(1)}`).join("");
+  const area = `${line}L${X(t1).toFixed(1)},${Y(0)}L${X(t0).toFixed(1)},${Y(0)}Z`;
+  let grid = "";
+  for (let v = 0; v <= nice; v += nice / 5) grid += `<line x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${l - 6}" y="${Y(v) + 4}" text-anchor="end">${v}</text>`;
+  let xt = "";
+  const h0 = Math.ceil(t0 / 21600) * 21600;
+  for (let ts = h0; ts <= t1; ts += 21600) xt += `<text x="${X(ts)}" y="${H - 5}" text-anchor="middle">${hhmm(ts)}</text>`;
+  const last = series[series.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" id="a24">${grid}${xt}
+    <path d="${area}" fill="var(--transit)" fill-opacity=".14"/><path d="${line}" fill="none" stroke="var(--transit)" stroke-width="2" stroke-linejoin="round"/>
+    <circle cx="${X(last[0])}" cy="${Y(last[2])}" r="4" fill="var(--transit)" stroke="var(--surface)" stroke-width="2"/>
+    <line id="a24x" y1="${t}" y2="${H - b}" stroke="var(--muted)" stroke-dasharray="2 3" visibility="hidden"/>
+    <rect x="${l}" y="0" width="${W - l - r}" height="${H}" fill="transparent" id="a24hit"/></svg>`;
+}
+function bindArea(series) {
+  const svg = $("#a24"); if (!svg) return;
+  const W = 460, l = 30, r = 8, t0 = series[0][0], t1 = series[series.length - 1][0];
+  const hit = $("#a24hit"), x = $("#a24x");
+  hit.addEventListener("pointermove", e => {
+    const bb = svg.getBoundingClientRect(), px = (e.clientX - bb.left) / bb.width * W;
+    const ts = t0 + (px - l) / (W - l - r) * (t1 - t0);
+    let best = series[0]; for (const s of series) if (Math.abs(s[0] - ts) < Math.abs(best[0] - ts)) best = s;
+    const bx = l + (best[0] - t0) / Math.max(t1 - t0, 1) * (W - l - r);
+    x.setAttribute("x1", bx); x.setAttribute("x2", bx); x.setAttribute("visibility", "visible");
+    showTip(e, `<b>${hhmm(best[0])}</b><br>${best[2]} v vožnji · ${best[1]} na postajah`);
+  });
+  hit.addEventListener("pointerleave", () => { x.setAttribute("visibility", "hidden"); hideTip(); });
+}
+
+function renderStats() {
+  const D = DATA, l7 = D.last7;
+  const ch = l7.change == null ? "" : ` · ${l7.change >= 0 ? "▲" : "▼"} ${nf(Math.abs(l7.change), 1)} % na teden`;
+  const cells = [
+    [nf(D.today.trips), `voženj danes (včeraj ${nf(D.yesterday.trips)})`],
+    [`${nf(D.today.km)} km`, `prevoženih danes`],
+    [`${nf(D.today.avg_min ?? D.yesterday.avg_min, 1)} min`, "povprečna vožnja"],
+    [nf(l7.per_day), `voženj na dan, 7 dni${ch}`],
+    [nf(l7.per_bike_day, 2), "voženj na kolo na dan"],
+    [`${nf(l7.co2_kg)} kg`, "manj CO₂ v 7 dneh"],
+    [`${nf(l7.km)} km`, "prevoženih v 7 dneh"],
+    [nf(l7.kcal), "porabljenih kalorij v 7 dneh"],
+  ];
+  $("#stats").innerHTML = cells.map(([v, t]) => `<div class="stat"><b>${v}</b><span>${t}</span></div>`).join("");
+}
+
+function li(rows, f) { return rows && rows.length ? `<ol>${rows.map(f).join("")}</ol>` : `<p class="muted" style="margin:0">Danes še ni podatkov.</p>`; }
+function renderHighlights() {
+  const D = DATA, ih = D.iron_horse, ph = D.peak_hour_yesterday;
+  const cards = [
+    ["Vroče postaje", "zadnjih 24 ur, izposoje + vračila",
+      li(D.hot_24h, s => `<li><span>${esc(titleCase(s.name))}</span><span class="num">${nf(s.moves)}</span></li>`)],
+    ["Ledena postaja", "najdlje prazna trenutno",
+      D.frozen ? `<div class="val">${dur(D.frozen.empty_s)}</div><div>${esc(titleCase(D.frozen.name))}</div>` : `<p class="muted" style="margin:0">Trenutno ni prazne postaje.</p>`],
+    ["Delovni konj", "kolo z največ vožnjami danes",
+      ih ? `<div class="val">${ih.trips} voženj</div><div class="muted">kolo #${esc(ih.bike)} · ${nf(ih.km, 1)} km</div>` : `<p class="muted" style="margin:0">Danes še ni voženj.</p>`],
+    ["Nočne ptice", "vožnje med 2. in 6. uro danes",
+      `<div class="val">${nf(D.night_owl.trips)}</div><div class="muted">${D.night_owl.avg_min ? `povprečno ${nf(D.night_owl.avg_min, 0)} min` : "&nbsp;"}</div>`],
+    ["Špica včeraj", "ura z največ izposojami",
+      ph ? `<div class="val">${ph.hour}.00–${ph.hour + 1}.00</div><div class="muted">${nf(ph.trips)} voženj</div>` : `<p class="muted" style="margin:0">Ni podatka.</p>`],
+    ["Najdaljše vožnje", "danes, med različnima postajama",
+      li(D.longest_today, t => `<li><span>${esc(titleCase(t.from))} → ${esc(titleCase(t.to))}</span><span class="num">${nf(t.km, 1)} km</span></li>`)],
+  ];
+  $("#hl").innerHTML = cards.map(([h, s, body]) => `<div class="panel"><div><h3>${h}</h3><div class="label">${s}</div></div>${body}</div>`).join("");
+}
+
+function renderDaily() {
+  const days = DATA.daily;
+  const W = 1100, H = 260, l = 44, r = 10, t = 14, b = 34;
+  const max = Math.max(10, ...days.map(d => d.trips));
+  const mag = Math.pow(10, Math.floor(Math.log10(max))), stepv = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => max / s <= 5);
+  const top = Math.ceil(max / stepv) * stepv;
+  const bw = (W - l - r) / Math.max(days.length, 1);
+  const Y = v => t + (1 - v / top) * (H - t - b);
+  let g = "";
+  for (let v = 0; v <= top; v += stepv) g += `<line x1="${l}" x2="${W - r}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)"/><text x="${l - 8}" y="${Y(v) + 4}" text-anchor="end">${nf(v)}</text>`;
+  const today = days.length - 1;
+  const bars = days.map((d, i) => {
+    const x = l + i * bw + 1, w = Math.max(bw - 2, 2), y = Y(d.trips), h = Math.max(Y(0) - y, 0);
+    const wd = (new Date(d.date + "T12:00:00").getDay() + 6) % 7;
+    const wx = d.tmax != null ? `<br>${nf(d.tmax, 0)} °C${d.rain ? ` · ${nf(d.rain, 1)} mm dežja` : ""}` : "";
+    const tipHtml = `<b>${fmtDate(d.date)}${i === today ? " (do zdaj)" : ""}</b><br>${nf(d.trips)} voženj · ${nf(d.km)} km<br>povprečno ${nf(d.avg_min, 1)} min · največ ${d.peak_in_transit} hkrati${wx}`;
+    const rr = Math.min(4, w / 2, h);
+    const path = h > 0 ? `M${x},${Y(0)}V${y + rr}Q${x},${y} ${x + rr},${y}H${x + w - rr}Q${x + w},${y} ${x + w},${y + rr}V${Y(0)}Z` : "";
+    const lab = (i % Math.ceil(days.length / 10) === 0 || i === today) ? `<text x="${x + w / 2}" y="${H - 14}" text-anchor="middle">${new Date(d.date + "T12:00:00").getDate()}. ${new Date(d.date + "T12:00:00").getMonth() + 1}.</text>` : "";
+    return `<g><path d="${path}" fill="var(--accent)" fill-opacity="${i === today ? .45 : wd >= 5 ? .62 : 1}"/>${lab}<rect x="${x - 1}" y="${t}" width="${bw}" height="${H - t - b}" fill="transparent" data-tip="${esc(tipHtml)}"/></g>`;
+  }).join("");
+  $("#daily").innerHTML = `<div class="sec-head"><h3>Vožnje po dnevih</h3><div class="legend"><span><i class="sw" style="background:var(--accent);border-radius:2px"></i>delavnik</span><span><i class="sw" style="background:var(--accent);opacity:.62;border-radius:2px"></i>vikend</span><span><i class="sw" style="background:var(--accent);opacity:.45;border-radius:2px"></i>danes, do zdaj</span></div></div><div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="min-width:560px">${g}${bars}</svg></div>`;
+  const tot = days.slice(0, -1);
+  const best = tot.reduce((a, d) => !a || d.trips > a.trips ? d : a, null);
+  $("#trend-sub").textContent = best ? `Rekord v tem obdobju: ${nf(best.trips)} voženj (${fmtDate(best.date)}). Podatke zbiramo od ${fmtDate(DATA.since)}.` : "";
+  bindTips($("#daily"));
+}
+
+function renderHeat() {
+  const hm = DATA.heatmap, max = Math.max(.01, ...hm.flat());
+  const cw = 22, ch = 22, l = 34, t = 18;
+  const W = l + 24 * cw, H = t + 7 * ch + 4;
+  const col = v => v <= 0 ? "var(--grid)" : v / max < .15 ? "var(--s1)" : v / max < .35 ? "var(--s2)" : v / max < .6 ? "var(--s3)" : v / max < .85 ? "var(--s4)" : "var(--s5)";
+  let s = "";
+  for (let h = 0; h < 24; h += 3) s += `<text x="${l + h * cw + cw / 2}" y="${t - 6}" text-anchor="middle">${h}</text>`;
+  hm.forEach((row, w) => {
+    s += `<text x="${l - 6}" y="${t + w * ch + ch / 2 + 4}" text-anchor="end">${DAYS[w]}</text>`;
+    row.forEach((v, h) => s += `<rect x="${l + h * cw + 1}" y="${t + w * ch + 1}" width="${cw - 2}" height="${ch - 2}" rx="3" fill="${col(v)}" data-tip="<b>${DAYS[w]}, ${h}.00–${h + 1}.00</b><br>${nf(v, 1)} voženj na uro"/>`);
+  });
+  $("#heat").innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="min-width:420px">${s}</svg><div class="legend" style="margin-top:8px">manj <span class="sw" style="background:var(--s1);border-radius:2px"></span><span class="sw" style="background:var(--s2);border-radius:2px"></span><span class="sw" style="background:var(--s3);border-radius:2px"></span><span class="sw" style="background:var(--s4);border-radius:2px"></span><span class="sw" style="background:var(--s5);border-radius:2px"></span> več</div>`;
+  bindTips($("#heat"));
+}
+
+function chg(c) { return c == null ? `<span class="muted">nova</span>` : `<span class="${c >= 0 ? "up" : "down"}">${c >= 0 ? "▲" : "▼"} ${nf(Math.abs(c), 1)} %</span>`; }
+function renderTables() {
+  const D = DATA, mx = Math.max(1, ...D.top_stations_7d.map(s => s.trips));
+  $("#topst").innerHTML = `<thead><tr><th>Postaja</th><th class="r">Izposoje</th><th style="width:80px"></th><th class="r">Teden prej</th></tr></thead><tbody>${D.top_stations_7d.map(s =>
+    `<tr><td>${esc(titleCase(s.name))}</td><td class="r">${nf(s.trips)}</td><td><div class="bar-mini"><i style="width:${s.trips / mx * 100}%"></i></div></td><td class="r">${chg(s.change)}</td></tr>`).join("")}</tbody>`;
+  $("#emptyshare").innerHTML = D.empty_share_7d.length ? `<thead><tr><th>Postaja</th><th class="r">Brez koles</th><th style="width:90px"></th></tr></thead><tbody>${D.empty_share_7d.map(s =>
+    `<tr><td>${esc(titleCase(s.name))}</td><td class="r">${nf(s.pct, 1)} %</td><td><div class="bar-mini"><i style="width:${s.pct}%;background:var(--critical)"></i></div></td></tr>`).join("")}</tbody>` : `<tr><td class="muted">Nobena postaja ni bila prazna.</td></tr>`;
+  $("#holes").innerHTML = D.morning_holes.length ? `<thead><tr><th>Postaja</th><th class="r">Dni</th><th class="r">Resnost</th></tr></thead><tbody>${D.morning_holes.map(h => {
+    const lv = h.days >= 7 ? ["high", "visoka"] : h.days >= 4 ? ["mid", "srednja"] : ["low", "nižja"];
+    return `<tr><td>${esc(titleCase(h.name))}</td><td class="r">${h.days}</td><td class="r"><span class="pill ${lv[0]}">${lv[1]}</span></td></tr>`;
+  }).join("")}</tbody>` : `<tr><td class="muted">Ni postaj s ponavljajočimi se jutranjimi luknjami.</td></tr>`;
+  const rm = Math.max(1, ...D.routes_7d.map(r => r.trips));
+  $("#routes").innerHTML = D.routes_7d.length ? `<thead><tr><th>Od</th><th>Do</th><th class="r">Vožnje</th><th style="width:110px"></th></tr></thead><tbody>${D.routes_7d.map(r =>
+    `<tr><td>${esc(titleCase(r.from))}</td><td>${r.loop ? `<span class="muted">↺ ista postaja</span>` : esc(titleCase(r.to))}</td><td class="r">${nf(r.trips)}</td><td><div class="bar-mini"><i style="width:${r.trips / rm * 100}%"></i></div></td></tr>`).join("")}</tbody>` : `<tr><td class="muted">Premalo voženj za prikaz.</td></tr>`;
+}
+
+function renderCompare() {
+  const c = DATA.compare;
+  $("#cmp-sec").hidden = !c;
+  if (!c) return;
+  const rows = [...c].sort((a, b) => (b.per_bike_day || 0) - (a.per_bike_day || 0));
+  const m1 = Math.max(...rows.map(r => r.per_bike_day || 0), .01), m2 = Math.max(...rows.map(r => r.per_day || 0), 1);
+  $("#cmp").innerHTML = `<thead><tr><th>Sistem</th><th class="r">Voženj / kolo / dan</th><th style="width:120px"></th><th class="r">Voženj / dan</th><th style="width:100px"></th><th class="r">Povpr. vožnja</th><th class="r">Flota</th><th class="r">Postaje</th><th class="r">Teden</th></tr></thead><tbody>${rows.map(r =>
+    `<tr><td><b>${esc(r.name)}</b></td><td class="r">${nf(r.per_bike_day, 2)}</td><td><div class="bar-mini"><i style="width:${(r.per_bike_day || 0) / m1 * 100}%"></i></div></td><td class="r">${nf(r.per_day)}</td><td><div class="bar-mini"><i style="width:${(r.per_day || 0) / m2 * 100}%;background:var(--s3)"></i></div></td><td class="r">${nf(r.avg_min, 1)} min</td><td class="r">${nf(r.fleet)}</td><td class="r">${nf(r.stations)}</td><td class="r">${chg(r.change)}</td></tr>`).join("")}</tbody>`;
+}
+
+function render() {
+  renderBoard(); renderMap(); renderStations();
+  $("#transit24").innerHTML = areaChart(DATA.live.series_24h); bindArea(DATA.live.series_24h);
+  renderStats(); renderHighlights(); renderCompare(); renderDaily(); renderHeat(); renderTables();
+  $("#gen").textContent = `Statistika izračunana ${new Date(DATA.generated_at * 1000).toLocaleString("sl-SI")}.`;
+}
+
+/* Živo osveževanje vsako minuto: iz Supabase (če je nastavljen v config.js), sicer neposredno iz nextbike API-ja.
+   Ob napaki ostanejo podatki zadnjega izračuna. */
+async function fetchLive() {
+  const cfg = window.NB_CONFIG || {};
+  const ctl = new AbortController(); setTimeout(() => ctl.abort(), 8000);
+  if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
+    const h = { apikey: cfg.supabaseAnonKey, Authorization: `Bearer ${cfg.supabaseAnonKey}` };
+    const base = cfg.supabaseUrl.replace(/\/$/, "") + "/rest/v1/";
+    const [st, fl] = await Promise.all([
+      fetch(base + "nb_live_stations?select=uid,bikes,free", { headers: h, signal: ctl.signal }).then(r => r.ok ? r.json() : null),
+      fetch(base + "nb_live_fleet?select=domain,ts,available,in_transit", { headers: h, signal: ctl.signal }).then(r => r.ok ? r.json() : null),
+    ]);
+    if (!st) return null;
+    return { stations: Object.fromEntries(st.map(s => [s.uid, s])), fleet: fl ? Object.fromEntries(fl.map(f => [f.domain, f])) : null };
+  }
+  const r = await fetch(LIVE_API + META.systems.map(s => s.domain).join(","), { signal: ctl.signal });
+  if (!r.ok) return null;
+  const j = await r.json(), stations = {};
+  for (const c of j.countries || []) for (const city of c.cities || []) for (const p of city.places || [])
+    if (p.spot) stations[p.uid] = { bikes: p.bikes, free: p.free_racks };
+  return { stations, fleet: null };
+}
+async function liveRefresh() {
+  if (META.demo) return;
+  try {
+    const L = await fetchLive(); if (!L) return;
+    for (const D of Object.values(cache)) {
+      let av = 0, empty = 0, withB = 0;
+      for (const s of D.live.stations) { const p = L.stations[s.uid]; if (p) { s.bikes = p.bikes; s.free = p.free; } av += s.bikes || 0; s.bikes ? withB++ : empty++; }
+      let transit = D.live.in_transit, ts = Math.floor(Date.now() / 1000);
+      if (L.fleet) {
+        const f = D.domains.map(d => L.fleet[d]).filter(Boolean);
+        if (f.length) { transit = f.reduce((a, x) => a + x.in_transit, 0); ts = Math.max(...f.map(x => x.ts)); }
+      }
+      Object.assign(D.live, { available: av, in_transit: transit, empty_stations: empty, stations_with_bikes: withB, fleet: av + transit, ts });
+    }
+    renderBoard(); renderMap(); renderStations();
+  } catch (e) { /* CORS ali omrežje */ }
+}
+
+async function init() {
+  try {
+    META = await getJSON("data/meta.json");
+  } catch (e) {
+    $("#fresh").innerHTML = `<span class="err">Podatkov ni mogoče naložiti. Ali zbiralnik in builder tečeta?</span>`; return;
+  }
+  $("#demo").hidden = !META.demo;
+  const h = (location.hash || "").slice(1);
+  const keys = ["all", ...META.systems.map(s => s.domain)];
+  current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].domain);
+  tabs();
+  $("#q").addEventListener("input", renderStations);
+  await select(current);
+  setInterval(async () => {  // novi izračuni builderja
+    try { for (const k of Object.keys(cache)) delete cache[k]; DATA = await load(current); render(); } catch (e) {}
+  }, 120000);
+  liveRefresh(); setInterval(liveRefresh, 60000);
+  setInterval(() => { if (DATA) renderBoard(); }, 15000);
+}
+init();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+# Nomago Bikes v živo
+
+Javna statistična stran za sisteme Nomago Bikes (nextbike domene `cc, cn, ce, cf, cd`), po vzoru [bajs.informacija.hr](https://bajs.informacija.hr). Vse teče na brezplačnih storitvah.
+
+```
+nextbike-live.json
+      │  vsaki 2 min (pg_cron + pg_net)
+      ▼
+Supabase Postgres ── nb.ingest(): stanje postaj + sklepanje voženj
+      │                                    │
+      │ vsakih 15 min (GitHub Actions)     │ vsako minuto (REST, javni pogledi nb_live_*)
+      ▼                                    ▼
+builder.py ──► site/data/*.json ──► GitHub Pages (site/index.html)
+```
+
+**Kako štejemo vožnje.** Ko kolo (`bike_numbers`) izgine s postaje A in se pojavi na B, je to vožnja. Premik 3 ali več koles hkrati med istima postajama je prerazporeditev, odsotnost nad 6 ur je servis, A→A krajše od 3 min je ponovni priklop. Nič od tega ne šteje kot vožnja. Na 30 simuliranih dneh je bilo pravilno zaznanih 99 % voženj.
+
+## Postavitev (približno 15 minut)
+
+### 1. Supabase (baza in zbiranje)
+
+1. Na [supabase.com](https://supabase.com) ustvari brezplačen projekt (regija Frankfurt ali Zürich).
+2. **SQL Editor** → prilepi in zaženi `supabase/01_schema.sql`, nato še `supabase/02_collect_and_api.sql`.
+   Če drugi korak javi napako pri `create extension`: **Database → Extensions** → vklopi `pg_cron` in `pg_net`, nato zaženi znova.
+3. Preveri čez 5 minut v SQL Editorju:
+   ```sql
+   select count(*) from nb.stations;                    -- > 0
+   select * from nb.runs order by ts desc limit 5;      -- ok = true
+   ```
+
+Zbiranje zdaj teče samo od sebe vsaki 2 minuti.
+
+### 2. GitHub (izračun in stran)
+
+1. **Settings → Pages → Source: GitHub Actions**.
+2. **Settings → Secrets and variables → Actions**:
+   - *Secrets* → `DATABASE_URL`: v Supabase **Connect** → **Session pooler** (IPv4) → URI z vpisanim geslom baze.
+     Ne uporabi »Direct connection«, ker je samo IPv6 in ga GitHub Actions ne dosežejo.
+   - *Variables* → `SUPABASE_URL` (npr. `https://abcd.supabase.co`) in `SUPABASE_ANON_KEY` (Settings → API → anon/publishable key). Z njima stran vsako minuto osveži stanje postaj.
+3. **Actions → Statistika in objava strani → Run workflow**.
+
+Stran je na `https://petzni.github.io/nomago-bikes-live/`. Dokler `DATABASE_URL` ni nastavljen, se ob pushu objavi demo s simuliranimi podatki.
+
+### Kaj je javno
+
+Tabele v shemi `nb` niso dostopne prek Supabase API-ja. Javna sta le pogleda `nb_live_stations` (stanje postaj) in `nb_live_fleet` (število koles na voljo/v vožnji), samo za branje. Vožnje s številkami koles so dostopne le z `DATABASE_URL`. Na strani so samo agregati, relacije z manj kot 3 vožnjami pa so skrite.
+
+## Razvoj lokalno (brez Supabase)
+
+```bash
+rm -f data/demo.sqlite
+TZ=Europe/Ljubljana NB_DB=data/demo.sqlite python3 simulate.py --days 30
+TZ=Europe/Ljubljana NB_DB=data/demo.sqlite NB_DEMO=1 NB_WEATHER=0 python3 builder.py
+cd site && python3 -m http.server 8000     # http://localhost:8000
+```
+
+Z nastavljenim `DATABASE_URL` vsi skripti (`collector.py`, `builder.py`, `simulate.py`) delajo s Postgresom namesto s SQLite. Na lastnem strežniku lahko vse teče tudi brez Supabase: `run.sh` vsaki 2 minuti iz crona (glej `deploy/`).
+
+## Datoteke
+
+| Datoteka | Kaj dela |
+|---|---|
+| `supabase/01_schema.sql` | tabele in funkcija `nb.ingest()` (sklepanje voženj v SQL) |
+| `supabase/02_collect_and_api.sql` | pg_cron opravilo vsaki 2 min, čiščenje starih podatkov, javni pogledi |
+| `builder.py` | statistike → `site/data/*.json` (SQLite ali Postgres) |
+| `collector.py` | ista logika v Pythonu za SQLite/lastni strežnik |
+| `simulate.py` | simulirani podatki v obliki nextbike-live.json za razvoj in test |
+| `common.py` | nastavitve (pragovi, CO₂ na km, faktor obvoza) in povezava z bazo |
+| `site/index.html` | stran (ena datoteka, brez build koraka) |
+| `.github/workflows/pages.yml` | izračun vsakih 15 min in objava na GitHub Pages |
+
+## Omejitve
+
+- **Kilometri so ocena** (zračna razdalja × 1,3). Kot operater imate v nextbike zaledju prave podatke o izposojah. Ko jih uvozite v `nb.trips`, ostane preostali del enak.
+- **»V vožnji«** vključuje tudi kolesa na kombiju med razvozom.
+- **GitHub Actions cron** ni točen na minuto, zato se statistika včasih osveži z nekaj minutami zamude. Živo stanje postaj iz Supabase se osveži ne glede na to.
+- **Brezplačni Supabase projekt** se po 7 dneh brez aktivnosti zaustavi. Redni klici strani in GitHub Actions bi to morali preprečiti, vseeno pa ga po prvem tednu preveri.
+- **Prostor:** baza naraste za približno 1–2 MB na dan, starejši podrobni podatki se po 60 dneh brišejo. Brezplačnih 500 MB zadošča za več let.

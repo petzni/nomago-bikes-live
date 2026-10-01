@@ -1,0 +1,2 @@
+# vsaki 2 minuti zberi podatke in osveži statistiko
+*/2 * * * * /opt/nomago-bikes-stats/run.sh >> /var/log/nomago-bikes-stats.log 2>&1

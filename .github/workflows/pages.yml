@@ -1,0 +1,85 @@
+name: Statistika in objava strani
+
+# Vsakih 15 minut izračuna statistiko iz Supabase in objavi stran na GitHub Pages.
+# Brez nastavljene skrivnosti DATABASE_URL objavi demo z simuliranimi podatki (samo ob pushu ali ročnem zagonu).
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Europe/Ljubljana
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - id: mode
+        run: |
+          if [ -n "$DATABASE_URL" ]; then echo "mode=live" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" != "schedule" ]; then echo "mode=demo" >> "$GITHUB_OUTPUT"
+          else echo "mode=skip" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/checkout@v4
+        if: steps.mode.outputs.mode != 'skip'
+
+      - uses: actions/setup-python@v5
+        if: steps.mode.outputs.mode != 'skip'
+        with:
+          python-version: "3.12"
+
+      - name: Statistika iz Supabase
+        if: steps.mode.outputs.mode == 'live'
+        run: |
+          pip install "psycopg[binary]"
+          python builder.py
+
+      - name: Demo (simulirani podatki)
+        if: steps.mode.outputs.mode == 'demo'
+        env:
+          DATABASE_URL: ""
+          NB_DB: data/demo.sqlite
+          NB_DEMO: "1"
+          NB_WEATHER: "0"
+        run: |
+          python simulate.py --days 30
+          python builder.py
+
+      - name: Nastavitve strani
+        if: steps.mode.outputs.mode != 'skip'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          printf 'window.NB_CONFIG = { supabaseUrl: "%s", supabaseAnonKey: "%s" };\n' \
+            "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > site/config.js
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.mode.outputs.mode != 'skip'
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.mode != 'skip'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

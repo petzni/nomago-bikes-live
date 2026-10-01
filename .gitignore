@@ -1,0 +1,4 @@
+data/
+site/data/
+__pycache__/
+*.sqlite*

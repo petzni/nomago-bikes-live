@@ -1,0 +1,6 @@
+server {
+    listen 80;
+    server_name kolesa.example.si;
+    root /opt/nomago-bikes-stats/site;
+    location /data/ { add_header Cache-Control "no-cache"; }
+}
