@@ -485,7 +485,8 @@ async function fetchLive() {
   const cfg = window.NB_CONFIG || {};
   const ctl = new AbortController(); setTimeout(() => ctl.abort(), 8000);
   if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
-    const h = { apikey: cfg.supabaseAnonKey, Authorization: `Bearer ${cfg.supabaseAnonKey}` };
+    const h = { apikey: cfg.supabaseAnonKey };
+    if (!cfg.supabaseAnonKey.startsWith("sb_")) h.Authorization = `Bearer ${cfg.supabaseAnonKey}`; // star JWT anon ključ
     const base = cfg.supabaseUrl.replace(/\/$/, "") + "/rest/v1/";
     const [st, fl] = await Promise.all([
       fetch(base + "nb_live_stations?select=uid,bikes,free", { headers: h, signal: ctl.signal }).then(r => r.ok ? r.json() : null),
