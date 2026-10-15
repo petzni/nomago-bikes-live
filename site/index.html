@@ -108,6 +108,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .fbtn:disabled { opacity: .45; cursor: default }
 .fsel { font-size: 14px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px }
 .fsel select { font: 14px var(--body); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink) }
+.flowpanel.collapsed .fopt, .flowpanel.collapsed #f-time, .flowpanel.collapsed .fwrap, .flowpanel.collapsed #f-note { display: none }
 .fstate { font-size: 14px; color: var(--muted); min-width: 0 }
 #f-time { width: 100%; accent-color: var(--transit) }
 .fwrap { position: relative }
@@ -214,16 +215,17 @@ footer p { margin: 0 }
 
   <section aria-labelledby="h-flow" id="flow-sec">
     <div class="sec-head"><h2 id="h-flow">Tokovi koles</h2><p id="flow-sub">Animacija vseh voženj med postajami za sistem, občine in obdobje, izbrane zgoraj.</p></div>
-    <div class="panel flowpanel">
+    <div class="panel flowpanel collapsed">
       <div class="flowbar">
         <button type="button" class="fbtn primary" id="f-make">Ustvari animacijo</button>
-        <button type="button" class="fbtn" id="f-play" disabled>▶ Predvajaj</button>
-        <label class="fsel">Hitrost
+        <button type="button" class="fbtn fopt" id="f-play" disabled>▶ Predvajaj</button>
+        <label class="fsel fopt">Hitrost
           <select id="f-speed"><option value="240">1 dan v 4 min</option><option value="120">1 dan v 2 min</option><option value="60" selected>1 dan v 1 min</option><option value="30">1 dan v 30 s</option><option value="12">1 dan v 12 s</option></select></label>
-        <label class="fsel"><input type="checkbox" id="f-base" checked> podlaga zemljevida</label>
-        <button type="button" class="fbtn" id="f-png" disabled>Izvozi sliko</button>
-        <button type="button" class="fbtn" id="f-rec" disabled>Izvozi video</button>
-        <span class="fstate" id="f-state">Izberi obdobje zgoraj in klikni »Ustvari animacijo«.</span>
+        <label class="fsel fopt"><input type="checkbox" id="f-base" checked> podlaga zemljevida</label>
+        <button type="button" class="fbtn fopt" id="f-png" disabled>Izvozi sliko</button>
+        <button type="button" class="fbtn fopt" id="f-rec" disabled>Izvozi video</button>
+        <button type="button" class="fbtn fopt" id="f-close" title="Skrij animacijo">Skrij ✕</button>
+        <span class="fstate" id="f-state">Izberi sistem, občine in obdobje zgoraj, nato klikni »Ustvari animacijo«.</span>
       </div>
       <input type="range" id="f-time" min="0" max="1000" value="0" step="1" aria-label="Čas animacije" disabled>
       <div class="fwrap">
@@ -798,7 +800,9 @@ function flowEnsureMap() {
 async function flowMake() {
   flowPause();
   if (!window.L) { $("#f-state").textContent = "Zemljevida ni mogoče naložiti."; return; }
+  $(".flowpanel").classList.remove("collapsed");
   flowEnsureMap();
+  FL.map.invalidateSize();
   $("#f-state").textContent = "Nalagam vožnje …";
   const keys = histKeys();
   let H;
@@ -878,7 +882,7 @@ function bez(p0, p2) {  // ravna pot med postajama, po isti črti kot povezava
 function flowClearTrails() { if (FL.actx) { FL.actx.setTransform(1, 0, 0, 1, 0, 0); FL.actx.clearRect(0, 0, FL.acc.width, FL.acc.height); } }
 
 function flowDraw(dt = 0) {
-  const cv = FL.cv; if (!cv || !FL.map) return;
+  const cv = FL.cv; if (!cv || !FL.map || !cv.width || !cv.height) return;
   const main = FL.ctx, d = devicePixelRatio || 1;
   main.setTransform(1, 0, 0, 1, 0, 0);
   main.clearRect(0, 0, cv.width, cv.height);
@@ -1004,11 +1008,11 @@ function flowRecStart() {
   mr.ondataavailable = e => e.data.size && chunks.push(e.data);
   mr.onstop = () => {
     const ok = !FL.rec.cancel; FL.rec = null;
-    $("#f-rec").textContent = "Izvozi video"; ["#f-make", "#f-png", "#f-play", "#f-time"].forEach(q => $(q).disabled = false);
+    $("#f-rec").textContent = "Izvozi video"; ["#f-make", "#f-png", "#f-play", "#f-time", "#f-close"].forEach(q => $(q).disabled = false);
     if (ok) { flowSave(new Blob(chunks, { type }), flowFileName(type.includes("mp4") ? "mp4" : "webm")); $("#f-state").textContent = "Video je shranjen."; }
     else { flowPause(); $("#f-state").textContent = "Snemanje preklicano."; }
   };
-  ["#f-make", "#f-png", "#f-play", "#f-time"].forEach(q => $(q).disabled = true);
+  ["#f-make", "#f-png", "#f-play", "#f-time", "#f-close"].forEach(q => $(q).disabled = true);
   $("#f-rec").textContent = "■ Prekliči snemanje";
   const secs = Math.round(FL.days.length * +$("#f-speed").value);
   $("#f-state").textContent = `Snemam … traja približno ${secs >= 90 ? Math.round(secs / 60) + " min" : secs + " s"}. Pusti zavihek odprt.`;
@@ -1020,6 +1024,8 @@ function flowRecFinish() { setTimeout(() => { if (FL.rec) { flowCompose(FL.rec.c
 
 function flowInit() {
   $("#f-png").onclick = flowPng;
+  $("#f-close").onclick = () => { if (FL.rec) return; flowPause(); $(".flowpanel").classList.add("collapsed"); $("#f-make").classList.add("primary");
+    $("#f-state").textContent = "Izberi sistem, občine in obdobje zgoraj, nato klikni »Ustvari animacijo«."; };
   $("#f-rec").onclick = flowRecStart;
   $("#f-make").onclick = flowMake;
   $("#f-base").addEventListener("change", e => $("#fmap").classList.toggle("nobase", !e.target.checked));
