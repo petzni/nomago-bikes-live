@@ -66,7 +66,7 @@ Pogled se izračuna v brskalniku iz dnevnih podatkov po postajah (`data/<sistem>
 
 ## Tokovi koles (animacija)
 
-Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je oranžna pika, ki potuje od postaje do postaje. Ko vožnja konča, med postajama ostane povezava, ki se z vsako naslednjo vožnjo (v obe smeri skupaj) odebeli. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
+Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je modra pika, ki potuje od postaje do postaje. Ko vožnja konča, med postajama ostane povezava, ki se z vsako naslednjo vožnjo (v obe smeri skupaj) odebeli: oranžna znotraj iste občine, vijolična med različnima občinama. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
 
 Animacijo lahko izvoziš kot sliko končnega stanja (PNG) ali kot video (MP4 ali WebM, odvisno od brskalnika). Video se posname v brskalniku v realnem času izbrane hitrosti, zato mora zavihek med snemanjem ostati odprt.
 

@@ -18,18 +18,18 @@
   --body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --tiles: saturate(.55) contrast(.95);
-  --flow: #6a1fb5;
+  --flow: #6a1fb5; --flow-in: #e0661a; --bike: #0b5ed7;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
   --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
-  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff } }
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff; --flow-in: #ff9a52; --bike: #6cb6ff } }
 :root[data-theme="dark"] {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
   --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
-  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff }
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff; --flow-in: #ff9a52; --bike: #6cb6ff }
 
 * { box-sizing: border-box }
 [hidden] { display: none !important }
@@ -230,7 +230,7 @@ footer p { margin: 0 }
         <div id="fmap"></div>
         <div class="fhud" id="f-hud" hidden><b id="f-clock">–</b><span id="f-count"></span></div>
       </div>
-      <div class="label" id="f-note">Oranžne pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane vijolična povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj). Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
+      <div class="label" id="f-note">Modre pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj): <b style="color:var(--flow-in)">oranžna</b> znotraj iste občine, <b style="color:var(--flow)">vijolična</b> med različnima občinama. Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
     </div>
   </section>
 
@@ -820,7 +820,7 @@ async function flowMake() {
   const di = Object.fromEntries(H.days.map((d, i) => [d, i])), pos = {};
   sel.forEach((d, p) => pos[di[d]] = p);
   const st = {};
-  for (const [u, v] of Object.entries(H.st)) if (v[4] && v[5]) st[u] = { lat: v[4], lng: v[5], ll: L.latLng(v[4], v[5]), inU: inU(u) };
+  for (const [u, v] of Object.entries(H.st)) if (v[4] && v[5]) st[u] = { lat: v[4], lng: v[5], ll: L.latLng(v[4], v[5]), inU: inU(u), city: v[1] };
   const rnd = mulberry(sel.length * 7919 + rows.length);
   const trips = [];
   for (const [a, b, i, h, n, avg] of rows) {
@@ -894,12 +894,14 @@ function flowDraw(dt = 0) {
   const ctx = ac;
   const P = {};
   for (const [u, s] of Object.entries(FL.st)) P[u] = FL.map.latLngToContainerPoint(s.ll);
-  const tr = cssv("--transit");
+  const tr = cssv("--bike");
   // opravljene vožnje ostanejo kot povezava, ki se z vsako vožnjo odebeli
-  main.strokeStyle = cssv("--flow"); main.lineCap = "round";
+  const cIn = cssv("--flow-in"), cOut = cssv("--flow");
+  main.lineCap = "round";
   for (const [k, n] of Object.entries(FL.pair)) {
     const [a, b] = k.split(">"), pa = P[a], pb = P[b];
     if (!pa || !pb) continue;
+    main.strokeStyle = FL.st[a].city === FL.st[b].city ? cIn : cOut;
     main.globalAlpha = Math.min(.85, .22 + .07 * n); main.lineWidth = Math.min(14, .5 + 1.1 * Math.sqrt(n));
     main.beginPath(); main.moveTo(pa.x, pa.y); main.lineTo(pb.x, pb.y); main.stroke();
   }
