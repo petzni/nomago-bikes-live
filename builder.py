@@ -439,6 +439,7 @@ def build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, partner
     st = {u: s for u, s in stations.items() if s["domain"] in doms}
     sd = defaultdict(lambda: [0, 0, 0.0, 0])
     sh, od, lg, xb = Counter(), Counter(), defaultdict(list), defaultdict(lambda: [0, 0.0])
+    fl = defaultdict(lambda: [0, 0])  # (od, do, dan, ura) -> [vožnje, sekunde] za animacijo tokov
     start = ts_of(datetime.combine(d0, datetime.min.time()).replace(tzinfo=TZ))
     for fu, tu, a, b, dur, km in con.execute(
             f"""SELECT from_uid, to_uid, start_ts, end_ts, dur_s, km FROM trips
@@ -456,6 +457,8 @@ def build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, partner
             sd[(tu, j)][3] += 1
         if fu in st and tu in st:
             od[(fu, tu, i)] += 1
+            f = fl[(fu, tu, i, la.hour)]
+            f[0] += 1; f[1] += dur
             if fu != tu:
                 lg[i].append((fu, tu, i, round(km, 1), round(dur / 60)))
             if len(doms) > 1 and st[fu]["domain"] != st[tu]["domain"]:
@@ -471,7 +474,8 @@ def build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, partner
         rows.append([u, i, dep, sec, round(km, 1), arr, e, c, m])
     return {
         "days": days,
-        "st": {u: [s["name"], s["city_name"], s["domain"], partners.get(u) if partners else None] for u, s in st.items()},
+        "st": {u: [s["name"], s["city_name"], s["domain"], partners.get(u) if partners else None,
+                   round(s["lat"], 5) if s["lat"] else None, round(s["lng"], 5) if s["lng"] else None] for u, s in st.items()},
         "sd": rows,
         "sh": [[u, i, h, n] for (u, i, h), n in sh.items()],
         "od": [[a, b, i, n] for (a, b, i), n in od.items() if pair_tot[(a, b)] >= C.PUBLIC_MIN_ROUTE_TRIPS],
@@ -479,6 +483,9 @@ def build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, partner
         "sys": [[dom, di[day], f, pk] for (day, dom), (f, pk) in sys_daily.items() if dom in doms and day in di],
         "xb": [[i, n, round(km, 1)] for i, (n, km) in sorted(xb.items())] if len(doms) > 1 else None,
         "wx": {k: [v.get("tmax"), v.get("rain")] for k, v in wx.items() if k in di},
+        # tokovi: ura odhoda in povprečno trajanje, samo relacije z vsaj 3 vožnjami v celotnem obdobju
+        "fl": [[a, b, i, h, n, round(sec / n / 60, 1)] for (a, b, i, h), (n, sec) in fl.items()
+               if pair_tot[(a, b)] >= C.PUBLIC_MIN_ROUTE_TRIPS],
     }
 
 
@@ -595,6 +602,12 @@ def main(now=None):
         with open(os.path.join(C.SITE_DATA, f"{k}-hist.json"), "w", encoding="utf-8") as f:
             json.dump(idx, f, ensure_ascii=False, separators=(",", ":"))
         mon = {m: {"sd": [], "sh": [], "od": [], "lg": [], "sys": [], "xb": []} for m in months}
+        flow = {m: [] for m in months}
+        for row in v["fl"]:
+            flow[days[row[2]][:7]].append(row)
+        for m, rows in flow.items():
+            with open(os.path.join(C.SITE_DATA, f"{k}-flow-{m}.json"), "w", encoding="utf-8") as f:
+                json.dump(rows, f, separators=(",", ":"))
         for key, pos in (("sd", 1), ("sh", 1), ("od", 2), ("lg", 2), ("sys", 1), ("xb", 0)):
             for row in v[key] or []:
                 mon[days[row[pos]][:7]][key].append(row)

@@ -64,6 +64,10 @@ Pod zavihki je izbira obdobja: Danes (v živo), Včeraj, Zadnjih 7 dni, Prejšnj
 
 Pogled se izračuna v brskalniku iz dnevnih podatkov po postajah (`data/<sistem>-hist.json` + ena datoteka na mesec). Deluje skupaj z izbiro občin in partnerjev. Čas brez koles in jutranje luknje za dneve, starejše od 60 dni, builder hrani v tabeli `nb.station_daily` (flota v `nb.system_daily`); vožnje ostanejo v `nb.trips` neomejeno. Izbirati je mogoče do 400 dni nazaj (`HIST_MAX_DAYS`).
 
+## Tokovi koles (animacija)
+
+Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je pika, ki potuje od postaje do postaje in za seboj pušča kratko bledečo sled, zato pogoste relacije same narišejo tokove. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
+
 ## Izbira občin
 
 Pri sistemih z več občinami (KOLESCE, BICIKEL, GO2GO) lahko pod zavihki izbereš eno ali več občin. Pogled se izračuna v brskalniku iz agregatov po postajah (`cube` v JSON datoteki sistema). Vožnja šteje v občini, kjer se začne. Kolesa v vožnji in flota so vezani na celoten sistem, zato jih pri izbiri občin ni.

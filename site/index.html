@@ -101,6 +101,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .mk-zero { fill: var(--grid); stroke: var(--muted); stroke-width: 1 }
 .mk-empty { fill: var(--surface); stroke: var(--critical); stroke-width: 2.5 }
 .fitbtn a { width: auto !important; height: 30px !important; line-height: 30px !important; padding: 0 10px; font: 600 12px var(--body) !important; white-space: nowrap }
+.flowbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px }
+.fbtn { font: 600 14px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer }
+.fbtn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink) }
+.fbtn:disabled { opacity: .45; cursor: default }
+.fsel { font-size: 14px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px }
+.fsel select { font: 14px var(--body); padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink) }
+.fstate { font-size: 14px; color: var(--muted); min-width: 0 }
+#f-time { width: 100%; accent-color: var(--transit) }
+.fwrap { position: relative }
+#fmap { height: 560px; border-radius: 8px; overflow: hidden; background: var(--grid); z-index: 0 }
+@media (max-width: 700px) { #fmap { height: 420px } }
+#fmap .leaflet-tile-pane { filter: var(--tiles) brightness(.97) }
+.fcanvas { position: absolute; inset: 0; pointer-events: none; z-index: 450 }
+.fhud { position: absolute; left: 12px; bottom: 26px; z-index: 500; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px; display: grid; gap: 2px; pointer-events: none }
+.fhud b { font: 800 22px/1.1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums }
+.fhud span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums }
 .mapjump { display: flex; flex-wrap: wrap; gap: 6px }
 .mapjump button { font: 600 12.5px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer }
 .mapjump button:hover { border-color: var(--accent) }
@@ -189,6 +206,25 @@ footer p { margin: 0 }
         <input class="search" id="q" type="search" placeholder="Poišči postajo" aria-label="Poišči postajo">
         <div class="st-list"><table id="stations"></table></div>
       </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-flow" id="flow-sec">
+    <div class="sec-head"><h2 id="h-flow">Tokovi koles</h2><p id="flow-sub">Animacija vseh voženj med postajami za sistem, občine in obdobje, izbrane zgoraj.</p></div>
+    <div class="panel flowpanel">
+      <div class="flowbar">
+        <button type="button" class="fbtn primary" id="f-make">Ustvari animacijo</button>
+        <button type="button" class="fbtn" id="f-play" disabled>▶ Predvajaj</button>
+        <label class="fsel">Hitrost
+          <select id="f-speed"><option value="240">1 dan v 4 min</option><option value="120">1 dan v 2 min</option><option value="60" selected>1 dan v 1 min</option><option value="30">1 dan v 30 s</option><option value="12">1 dan v 12 s</option></select></label>
+        <span class="fstate" id="f-state">Izberi obdobje zgoraj in klikni »Ustvari animacijo«.</span>
+      </div>
+      <input type="range" id="f-time" min="0" max="1000" value="0" step="1" aria-label="Čas animacije" disabled>
+      <div class="fwrap">
+        <div id="fmap"></div>
+        <div class="fhud" id="f-hud" hidden><b id="f-clock">–</b><span id="f-count"></span></div>
+      </div>
+      <div class="label" id="f-note">Vsaka pika je kolo v vožnji. Kjer je voženj veliko, pike same narišejo tokove med postajami. Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
     </div>
   </section>
 
@@ -307,6 +343,7 @@ async function select(k) {
 function applyView() {
   periodTabs();
   ctabs();
+  flowCheck();
   if (PER.mode !== "live") { renderPeriodView(); return; }
   setLabels("live");
   DATA = selCities.size && BASE.cube ? deriveCities(BASE, selCities) : BASE;
@@ -718,6 +755,175 @@ function periodCompare(P) {
     `<tr><td><b>${esc(r.name)}</b></td><td class="r">${nf(r.n)}</td><td class="r">${nf(r.dep)}</td><td class="r">${nf(r.dep / P.nd, 1)}</td><td class="r">${nf(r.vpd, 1)}</td><td><div class="bar-mini"><i style="width:${r.vpd / m * 100}%"></i></div></td><td class="r">${r.dep ? nf(r.sec / r.dep / 60, 1) + " min" : "–"}</td><td class="r">${r.cov ? nf(r.emp / r.cov * 100, 1) + " %" : "–"}</td><td class="r">${R.prev.length ? chg(pct(r.dep, r.pdep)) : "–"}</td></tr>`).join("")}</tbody>`;
 }
 
+/* ------- Tokovi koles: animacija voženj na zemljevidu (podatki <sistem>-flow-<mesec>.json) ------- */
+const FL = { map: null, cv: null, ctx: null, trips: [], byEnd: [], st: {}, days: [], T: 0, t: 0, playing: false, last: 0,
+  sig: null, built: false, pair: {}, endPtr: 0, maxDur: 0, total: 0 };
+const FLOW_MAX_DAYS = 31;
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const flowSig = () => JSON.stringify([current, [...selCities].sort(), PER.mode, PER.from, PER.to, [...PER.picked].sort(), [...PER.wd].sort()]);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function flowCheck() {
+  if (!FL.built) return;
+  if (flowSig() !== FL.sig) {
+    flowPause();
+    $("#f-state").textContent = "Izbira se je spremenila. Klikni »Ustvari animacijo« za novo.";
+    $("#f-make").classList.add("primary");
+  }
+}
+
+function flowEnsureMap() {
+  if (FL.map || !window.L) return;
+  FL.map = L.map($("#fmap"), { scrollWheelZoom: false, zoomSnap: .5 });
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(FL.map);
+  FL.map.setView([46.1, 14.8], 8);
+  FL.map.on("click", () => FL.map.scrollWheelZoom.enable());
+  FL.map.on("mouseout", () => FL.map.scrollWheelZoom.disable());
+  FL.acc = document.createElement("canvas"); FL.actx = FL.acc.getContext("2d");  // sledi pik (bledijo)
+  FL.cv = document.createElement("canvas"); FL.cv.className = "fcanvas";
+  $(".fwrap").appendChild(FL.cv); FL.ctx = FL.cv.getContext("2d");
+  const resize = () => { const r = $("#fmap").getBoundingClientRect(), d = devicePixelRatio || 1;
+    FL.cv.width = FL.acc.width = r.width * d; FL.cv.height = FL.acc.height = r.height * d; FL.cv.style.width = r.width + "px"; FL.cv.style.height = r.height + "px"; flowDraw(); };
+  new ResizeObserver(resize).observe($("#fmap"));
+  FL.map.on("move zoom", () => { flowClearTrails(); if (!FL.playing) flowDraw(); });
+}
+
+async function flowMake() {
+  flowPause();
+  if (!window.L) { $("#f-state").textContent = "Zemljevida ni mogoče naložiti."; return; }
+  flowEnsureMap();
+  $("#f-state").textContent = "Nalagam vožnje …";
+  const keys = histKeys();
+  let H;
+  try { H = await getHist(keys); } catch (e) { $("#f-state").textContent = "Podatki za animacijo še niso pripravljeni."; return; }
+  let sel = PER.mode === "live" ? [H.days[H.days.length - 1]] : resolveDays(H.days).sel;
+  let note = "";
+  if (sel.length > FLOW_MAX_DAYS) { sel = sel.slice(-FLOW_MAX_DAYS); note = ` Skrajšano na zadnjih ${FLOW_MAX_DAYS} dni izbire.`; }
+  if (!sel.length) { $("#f-state").textContent = "V izbranem obdobju ni dni s podatki."; return; }
+  const months = [...new Set(sel.map(d => d.slice(0, 7)))];
+  const rows = [];
+  try {
+    const parts = await Promise.all(keys.flatMap((k, j) => months.map(m => {
+      const ck = `flow|${k}|${m}`;
+      return (hcache[ck] || (hcache[ck] = getJSON(`data/${k}-flow-${m}.json`).catch(() => [])));
+    })));
+    parts.forEach(p => rows.push(...p));
+  } catch (e) { $("#f-state").textContent = "Podatkov o tokovih ni mogoče naložiti."; return; }
+  const U = stationFilter(H), inU = u => !U || U.has(String(u));
+  const di = Object.fromEntries(H.days.map((d, i) => [d, i])), pos = {};
+  sel.forEach((d, p) => pos[di[d]] = p);
+  const st = {};
+  for (const [u, v] of Object.entries(H.st)) if (v[4] && v[5]) st[u] = { lat: v[4], lng: v[5], ll: L.latLng(v[4], v[5]), inU: inU(u) };
+  const rnd = mulberry(sel.length * 7919 + rows.length);
+  const trips = [];
+  for (const [a, b, i, h, n, avg] of rows) {
+    const p = pos[i];
+    if (p === undefined || !st[a] || !st[b] || !(inU(a) || inU(b))) continue;
+    for (let k = 0; k < n; k++) {
+      const s = p * 1440 + h * 60 + rnd() * 60, du = Math.max(2, avg * (0.8 + 0.4 * rnd()));
+      trips.push({ a: String(a), b: String(b), s, e: s + du, loop: a === b });
+    }
+  }
+  trips.sort((x, y) => x.s - y.s);
+  Object.assign(FL, { trips, byEnd: [...trips].sort((x, y) => x.e - y.e), st, days: sel, T: sel.length * 1440, t: 0, pair: {}, endPtr: 0,
+    maxDur: Math.max(0, ...trips.map(x => x.e - x.s)), total: trips.length, built: true, sig: flowSig() });
+  const pts = Object.entries(st).filter(([u, s]) => s.inU && (U || trips.length)).map(([, s]) => s.ll);
+  if (pts.length) { FL.map.invalidateSize(); FL.map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 15 }); }
+  $("#f-time").disabled = false; $("#f-time").max = FL.T; $("#f-time").value = 0;
+  $("#f-play").disabled = !trips.length; $("#f-hud").hidden = false; $("#f-make").classList.remove("primary");
+  const lab = sel.length === 1 ? `${DAYS[wdOf(sel[0])]} ${fmtLong(sel[0])}` : `${sel.length} dni (${fmtShort(sel[0])} – ${fmtLong(sel[sel.length - 1])})`;
+  $("#f-state").textContent = trips.length ? `${nf(trips.length)} voženj · ${lab}.${note}` : `V izbranem obdobju ni voženj na prikazanih relacijah.${note}`;
+  flowDraw();
+  if (trips.length && !matchMedia("(prefers-reduced-motion: reduce)").matches) flowPlay();
+}
+
+function flowSeek(t) {
+  FL.t = Math.max(0, Math.min(FL.T, t));
+  if (FL.endPtr && FL.byEnd[FL.endPtr - 1] && FL.byEnd[FL.endPtr - 1].e > FL.t) { FL.pair = {}; FL.endPtr = 0; }
+  while (FL.endPtr < FL.byEnd.length && FL.byEnd[FL.endPtr].e <= FL.t) {
+    const x = FL.byEnd[FL.endPtr++];
+    if (!x.loop) { const k = x.a + ">" + x.b; FL.pair[k] = (FL.pair[k] || 0) + 1; }
+  }
+}
+
+function flowPlay() {
+  if (!FL.built || !FL.trips.length) return;
+  if (FL.t >= FL.T) flowSeek(0), FL.pair = {}, FL.endPtr = 0;
+  FL.playing = true; FL.last = performance.now(); $("#f-play").textContent = "❚❚ Ustavi";
+  requestAnimationFrame(flowTick);
+}
+function flowPause() { FL.playing = false; $("#f-play").textContent = "▶ Predvajaj"; }
+function flowTick(now) {
+  if (!FL.playing) return;
+  const dt = Math.min(.1, (now - FL.last) / 1000); FL.last = now;
+  flowSeek(FL.t + dt * 1440 / +$("#f-speed").value);
+  $("#f-time").value = FL.t;
+  flowDraw(dt);
+  if (FL.t >= FL.T) { flowPause(); return; }
+  requestAnimationFrame(flowTick);
+}
+
+function bez(p0, p2, f) {  // ukrivljena pot, da se smeri A→B in B→A ne prekrivata
+  const mx = (p0.x + p2.x) / 2, my = (p0.y + p2.y) / 2, dx = p2.x - p0.x, dy = p2.y - p0.y;
+  const c = { x: mx - dy * .18, y: my + dx * .18 };
+  return t => { const u = 1 - t; return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p2.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p2.y }; };
+}
+
+function flowClearTrails() { if (FL.actx) { FL.actx.setTransform(1, 0, 0, 1, 0, 0); FL.actx.clearRect(0, 0, FL.acc.width, FL.acc.height); } }
+
+function flowDraw(dt = 0) {
+  const cv = FL.cv; if (!cv || !FL.map) return;
+  const main = FL.ctx, d = devicePixelRatio || 1;
+  main.setTransform(1, 0, 0, 1, 0, 0);
+  main.clearRect(0, 0, cv.width, cv.height);
+  if (!FL.built) return;
+  // sledi: prejšnje pike počasi zbledijo (razpolovni čas 0,4 s)
+  const ac = FL.actx;
+  ac.setTransform(1, 0, 0, 1, 0, 0);
+  if (dt > 0) { ac.globalCompositeOperation = "destination-out"; ac.globalAlpha = 1 - Math.pow(.5, dt / .4); ac.fillRect(0, 0, FL.acc.width, FL.acc.height); }
+  else flowClearTrails();
+  ac.globalCompositeOperation = "source-over";
+  ac.setTransform(d, 0, 0, d, 0, 0);
+  main.setTransform(d, 0, 0, d, 0, 0);
+  const ctx = ac;
+  const P = {};
+  for (const [u, s] of Object.entries(FL.st)) P[u] = FL.map.latLngToContainerPoint(s.ll);
+  const tr = cssv("--transit"), mut = cssv("--muted");
+  // postaje
+  main.globalAlpha = .75; main.fillStyle = mut;
+  for (const [u, s] of Object.entries(FL.st)) if (s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 2.2, 0, 7); main.fill(); }
+  // kolesa v vožnji
+  const t = FL.t; let lo = 0, hi = FL.trips.length;
+  const from = t - FL.maxDur;
+  while (lo < hi) { const m = (lo + hi) >> 1; FL.trips[m].s < from ? lo = m + 1 : hi = m; }
+  let on = 0;
+  ctx.fillStyle = tr;
+  for (let i = lo; i < FL.trips.length && FL.trips[i].s <= t; i++) {
+    const x = FL.trips[i]; if (x.e <= t) continue;
+    on++;
+    const p = (t - x.s) / (x.e - x.s);
+    if (x.loop) {
+      const c = P[x.a], an = x.s * 2.399, rr = 6 * Math.sin(Math.PI * p);  // krog okoli postaje in nazaj
+      ctx.globalAlpha = .85; ctx.beginPath(); ctx.arc(c.x + rr * Math.cos(an + p * 6.28), c.y + rr * Math.sin(an + p * 6.28), 1.8, 0, 7); ctx.fill(); continue;
+    }
+    const q = bez(P[x.a], P[x.b])(p); ctx.globalAlpha = .85; ctx.beginPath(); ctx.arc(q.x, q.y, 1.8, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  main.globalAlpha = 1; main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(FL.acc, 0, 0);
+  const dayI = Math.min(FL.days.length - 1, Math.floor(t / 1440)), m = Math.floor(t % 1440);
+  const iso = FL.days[dayI] || FL.days[0];
+  $("#f-clock").textContent = `${DAYS[wdOf(iso)]} ${fmtShort(iso)} · ${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  $("#f-count").textContent = `${nf(on)} koles v vožnji · ${nf(FL.endPtr)} od ${nf(FL.total)} voženj`;
+}
+
+function flowInit() {
+  $("#f-make").onclick = flowMake;
+  $("#f-play").onclick = () => FL.playing ? flowPause() : flowPlay();
+  $("#f-time").addEventListener("input", e => { flowSeek(+e.target.value); flowDraw(); });
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", flowDraw);
+}
+
 /* ------- risanje ------- */
 function fillColor(s) {
   const cap = Math.max(s.racks || 0, (s.bikes || 0) + (s.free || 0), 1);
@@ -1049,6 +1255,7 @@ async function init() {
   const keys = ["all", ...META.systems.flatMap(s => [s.key, ...(s.partners || []).map(p => p.key)])];
   current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].key);
   tabs();
+  flowInit();
   $("#q").addEventListener("input", () => PER.mode === "live" ? renderStations() : renderPeriodStations());
   const onRange = () => { PER.from = $("#pfrom").value; PER.to = $("#pto").value; PER.mode = "custom"; applyView(); };
   $("#pfrom").addEventListener("change", onRange); $("#pto").addEventListener("change", onRange);
