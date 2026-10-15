@@ -291,7 +291,9 @@ const dur = s => s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600
 const titleCase = s => { const [n, ...rest] = String(s || "").split(" · "); return [n.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()), ...rest].join(" · "); };
 
 let META = null, DATA = null, BASE = null, current = "all", INTERNAL = false;
-let selCities = new Set();
+let selCities = new Set(), selParts = new Set(), PMAP = {};
+const partsOf = k => (META.systems.find(s => s.key === k) || {}).partners || null;
+const scopeText = () => [[...selParts].join(" + "), [...selCities].join(", ")].filter(Boolean).join(" · ");
 const parentOf = k => { for (const s of META.systems) if ((s.partners || []).some(p => p.key === k)) return s.key; return k; };
 const cache = {};
 
@@ -328,18 +330,32 @@ function tabs() {
 }
 
 function ptabs() {
-  const sys = META.systems.find(s => s.key === parentOf(current));
-  const parts = INTERNAL && sys && sys.partners ? sys.partners : null;
+  const parts = INTERNAL ? partsOf(current) : null;
   $("#ptabs").hidden = !parts;
   if (!parts) return;
-  const items = [{ key: sys.key, name: "Vse postaje" }, ...parts];
-  $("#ptabs").innerHTML = items.map(p => `<button type="button" data-k="${p.key}" aria-pressed="${p.key === current}">${esc(p.name)}</button>`).join("");
-  $("#ptabs").querySelectorAll("button").forEach(b => b.onclick = () => select(b.dataset.k));
+  $("#ptabs").innerHTML = `<button type="button" data-n="" aria-pressed="${!selParts.size}">Vse postaje</button>` +
+    parts.map(p => `<button type="button" data-n="${esc(p.name)}" aria-pressed="${selParts.has(p.name)}">${esc(p.name)}</button>`).join("");
+  $("#ptabs").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const n = b.dataset.n;
+    if (!n) selParts = new Set(); else if (selParts.has(n)) selParts.delete(n); else selParts.add(n);
+    if (selParts.size === parts.length) selParts = new Set();
+    applyView();
+  });
+}
+function writeHash() {
+  const parts = partsOf(current) || [];
+  const one = selParts.size === 1 ? parts.find(p => selParts.has(p.name)) : null;
+  try { history.replaceState(null, "", "#" + (INTERNAL ? "interno-" : "") + (one ? one.key : current)); } catch (e) {}
 }
 
 async function select(k) {
+  const pk = META.systems.flatMap(s => (s.partners || []).map(p => [p.key, s.key, p.name])).find(x => x[0] === k);
+  if (pk) { k = pk[1]; selParts = new Set([pk[2]]); }
+  else if (k !== current) selParts = new Set();
   current = k;
-  try { history.replaceState(null, "", "#" + (INTERNAL ? "interno-" : "") + k); } catch (e) {}
+  if (INTERNAL && partsOf(k)) {
+    try { const H = await getHist([k]); PMAP = Object.fromEntries(Object.entries(H.st).map(([u, v]) => [u, v[3]])); } catch (e) { PMAP = {}; }
+  }
   $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === parentOf(k)));
   ptabs();
   const prev = BASE && BASE.domains ? BASE.domains.join() : null;
@@ -349,17 +365,19 @@ async function select(k) {
 }
 
 function applyView() {
+  writeHash();
+  ptabs();
   periodTabs();
   ctabs();
   flowCheck();
   if (PER.mode !== "live") { renderPeriodView(); return; }
   setLabels("live");
-  DATA = selCities.size && BASE.cube ? deriveCities(BASE, selCities) : BASE;
+  DATA = (selCities.size || selParts.size) && BASE.cube ? deriveCities(BASE) : BASE;
   render();
 }
 
 function ctabs() {
-  const C = BASE && BASE.cube;
+  const C = BASE && BASE.cube && new Set(Object.values(BASE.cube.station_city)).size > 1 ? BASE.cube : null;
   $("#ctabs").hidden = !C;
   if (!C) return;
   const cities = [...new Set(Object.values(C.station_city))].sort((a, b) => a.localeCompare(b, "sl"));
@@ -376,8 +394,9 @@ function ctabs() {
 }
 
 /* Pogled za izbrane občine, izračunan v brskalniku iz agregatov po postajah (BASE.cube). */
-function deriveCities(D, sel) {
-  const C = D.cube, cityOf = u => C.station_city[u], inSel = u => sel.has(cityOf(u));
+function deriveCities(D) {
+  const C = D.cube, cityOf = u => C.station_city[u];
+  const inSel = u => (!selCities.size || selCities.has(cityOf(u))) && (!selParts.size || selParts.has(PMAP[u]));
   const ps = C.per_station, ids = Object.keys(ps).filter(inSel);
   const names = Object.fromEntries(D.live.stations.map(s => [s.uid, s.name]));
   const nm = u => names[u] || "?";
@@ -410,7 +429,7 @@ function deriveCities(D, sel) {
   const frozenU = ids.filter(u => ps[u].empty_s).sort((a, b) => ps[b].empty_s - ps[a].empty_s)[0];
   const top = (arr, n) => arr.slice(0, n);
   return {
-    ...D, cube: null, compare: null, cross_border: null, iron_horse: null, scope: "izbranih občin",
+    ...D, cube: null, compare: null, cross_border: null, iron_horse: null, scope: selParts.size ? "izbranih partnerjev" : "izbranih občin",
     live: { ...D.live, stations: sts, available: sts.reduce((a, s) => a + (s.bikes || 0), 0), in_transit: null, fleet: null,
       series_24h: [], stations_total: sts.length, stations_with_bikes: sts.filter(s => s.bikes).length,
       empty_stations: sts.filter(s => !s.bikes).length, dep_today: today.trips,
@@ -484,9 +503,8 @@ function resolveDays(days) {
 }
 
 function stationFilter(H) {
-  const p = META.systems.flatMap(s => s.partners || []).find(x => x.key === current);
-  if (!p && !selCities.size) return null;
-  return new Set(Object.keys(H.st).filter(u => (!p || H.st[u][3] === p.name) && (!selCities.size || selCities.has(H.st[u][1]))));
+  if (!selParts.size && !selCities.size) return null;
+  return new Set(Object.keys(H.st).filter(u => (!selParts.size || selParts.has(H.st[u][3])) && (!selCities.size || selCities.has(H.st[u][1]))));
 }
 
 function computePeriod(H, R, U) {
@@ -614,8 +632,8 @@ function setLabels(mode) {
 const chgSpan = (a, b) => b ? `<span class="chg">${chg(pct(a, b))} prej ${nf(b)}</span>` : "";
 
 function drawPeriod(P) {
-  const R = P.R, scope = P.U ? (META.systems.flatMap(s => s.partners || []).some(x => x.key === current) ? "partnerja" : "izbranih občin") : null;
-  $("#now-sub").textContent = periodLabel(R) + (scope === "izbranih občin" ? ` · ${[...selCities].join(", ")}` : "") + (P.U ? ". Vožnje štejemo na postaji, kjer se začnejo." : "");
+  const R = P.R;
+  $("#now-sub").textContent = periodLabel(R) + (P.U ? ` · ${scopeText()}. Vožnje štejemo na postaji, kjer se začnejo.` : "");
   $("#fresh").textContent = `zgodovinski podatki do ${fmtShort(P.H.days[P.H.days.length - 1])}`;
   const tile = (lab, v, sub, cls = "") => `<div class="tile ${cls}"><span class="label">${lab}</span><span class="big">${v}</span><small>${sub}</small></div>`;
   const perDayPrev = R.prev.length ? P.ptrips / R.prev.length : null;
@@ -768,7 +786,7 @@ const FL = { map: null, cv: null, ctx: null, trips: [], byEnd: [], st: {}, days:
   sig: null, built: false, pair: {}, endPtr: 0, maxDur: 0, total: 0 };
 const FLOW_MAX_DAYS = 31;
 function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const flowSig = () => JSON.stringify([current, [...selCities].sort(), PER.mode, PER.from, PER.to, [...PER.picked].sort(), [...PER.wd].sort()]);
+const flowSig = () => JSON.stringify([current, [...selCities].sort(), [...selParts].sort(), PER.mode, PER.from, PER.to, [...PER.picked].sort(), [...PER.wd].sort()]);
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
 function flowCheck() {
@@ -940,7 +958,7 @@ function flowDraw(dt = 0) {
 /* ------- izvoz: slika končnega stanja in video animacije ------- */
 function flowTitle() {
   const sys = current === "all" ? "Vsi sistemi" : (META.systems.find(s => s.key === parentOf(current)) || {}).name || "";
-  const part = (META.systems.flatMap(s => s.partners || []).find(x => x.key === current) || {}).name;
+  const part = [...selParts].join(" + ");
   const d = FL.days, per = d.length === 1 ? fmtLong(d[0]) : `${fmtShort(d[0])} – ${fmtLong(d[d.length - 1])}`;
   return [sys, part, selCities.size ? [...selCities].join(", ") : null, per].filter(Boolean).join(" · ");
 }
@@ -1066,7 +1084,7 @@ function drawMap(items, note, jump) {
   const pts = items.filter(s => s.lat && s.lng);
   for (const s of pts) L.circleMarker([s.lat, s.lng], { radius: s.r, className: "mk " + s.cls, fillOpacity: 1, opacity: 1 })
     .bindTooltip(s.tip, { direction: "top", offset: [0, -s.r] }).addTo(LLAYER);
-  const key = current + "|" + [...selCities].join();
+  const key = current + "|" + [...selCities].join() + "|" + [...selParts].join();
   if (pts.length) LBOUNDS = L.latLngBounds(pts.map(s => [s.lat, s.lng]));
   if (key !== LFIT && LBOUNDS) { LMAP.invalidateSize(); LMAP.fitBounds(LBOUNDS, { padding: [24, 24], maxZoom: 16 }); LFIT = key; }
   $("#map-note").innerHTML = (jump ? `<div class="mapjump">${jump.map(j => `<button type="button" data-k="${esc(j.key)}">${esc(j.name)}</button>`).join("")}</div>` : "") +
@@ -1096,8 +1114,7 @@ function renderBoard() {
     <div class="tile"><span class="label">Izposoje danes</span><span class="big">${nf(L.dep_today)}</span><small>s postaj ${DATA.scope}</small></div>
     <div class="tile"><span class="label">Vračila danes</span><span class="big">${nf(L.arr_today)}</span><small>na postaje ${DATA.scope}</small></div>
     <div class="tile"><span class="label">Prazne postaje</span><span class="big" style="color:${L.empty_stations ? "var(--critical)" : "inherit"}">${nf(L.empty_stations)}</span><small>od ${nf(L.stations_total)} postaj</small></div>`;
-    $("#now-sub").textContent = DATA.scope === "partnerja" ? `Postaje: ${DATA.partner.station_names.join(", ")}. Stanje ob ${hhmm(L.ts)}.`
-      : `${[...selCities].join(", ")}: ${nf(L.stations_total)} postaj. Vožnje štejemo v občini, kjer se začnejo. Stanje ob ${hhmm(L.ts)}.`;
+    $("#now-sub").textContent = `${scopeText()}: ${nf(L.stations_total)} postaj. Vožnje štejemo na postaji, kjer se začnejo. Stanje ob ${hhmm(L.ts)}.`;
     const age = Math.max(0, Math.round(Date.now() / 1000 - L.ts));
     $("#fresh").textContent = `osveženo pred ${age < 90 ? age + " s" : dur(age)}`;
     return;
@@ -1167,7 +1184,7 @@ function renderStats() {
   if (D.partner) {
     const P = D.partner;
     const cells = [
-      [nf(D.today.trips), `${D.scope === "partnerja" ? "voženj s/na postaje partnerja" : "izposoj v izbranih občinah"} danes (včeraj ${nf(D.yesterday.trips)})`],
+      [nf(D.today.trips), `izposoj na izbranih postajah danes (včeraj ${nf(D.yesterday.trips)})`],
       [nf(P.dep_7d), "izposoj v 7 dneh"],
       [nf(P.arr_7d), "vračil v 7 dneh"],
       [nf(P.per_station_day, 1), "obiskov na postajo na dan"],
@@ -1285,8 +1302,8 @@ function renderCompare() {
     const rows = [...pc].sort((a, b) => (b.per_station_day || 0) - (a.per_station_day || 0));
     const m = Math.max(...rows.map(r => r.per_station_day || 0), .01);
     $("#cmp").innerHTML = `<thead><tr><th>Partner</th><th class="r">Postaje</th><th class="r">Obiskov / postajo / dan</th><th style="width:110px"></th><th class="r">Izposoje</th><th class="r">Vračila</th><th class="r">Čas brez koles</th><th class="r">Izposoje, teden</th></tr></thead><tbody>${rows.map(r =>
-      `<tr><td><a href="#interno-${r.key}" data-k="${r.key}" class="plink"><b>${esc(r.name)}</b></a></td><td class="r">${nf(r.stations)}</td><td class="r">${nf(r.per_station_day, 1)}</td><td><div class="bar-mini"><i style="width:${(r.per_station_day || 0) / m * 100}%"></i></div></td><td class="r">${nf(r.dep_7d)}</td><td class="r">${nf(r.arr_7d)}</td><td class="r">${r.empty_pct == null ? "–" : nf(r.empty_pct, 1) + " %"}</td><td class="r">${chg(r.change)}</td></tr>`).join("")}</tbody>`;
-    $("#cmp").querySelectorAll(".plink").forEach(a => a.onclick = e => { e.preventDefault(); select(a.dataset.k); scrollTo({ top: 0 }); });
+      `<tr><td><a href="#interno-${r.key}" data-n="${esc(r.name)}" class="plink"><b>${esc(r.name)}</b></a></td><td class="r">${nf(r.stations)}</td><td class="r">${nf(r.per_station_day, 1)}</td><td><div class="bar-mini"><i style="width:${(r.per_station_day || 0) / m * 100}%"></i></div></td><td class="r">${nf(r.dep_7d)}</td><td class="r">${nf(r.arr_7d)}</td><td class="r">${r.empty_pct == null ? "–" : nf(r.empty_pct, 1) + " %"}</td><td class="r">${chg(r.change)}</td></tr>`).join("")}</tbody>`;
+    $("#cmp").querySelectorAll(".plink").forEach(a => a.onclick = e => { e.preventDefault(); selParts = new Set([a.dataset.n]); applyView(); scrollTo({ top: 0 }); });
     return;
   }
   $("#h-cmp").textContent = "Primerjava mest";
@@ -1347,7 +1364,7 @@ async function liveRefresh() {
       Object.assign(D.live, { available: av, in_transit: transit, empty_stations: empty, stations_with_bikes: withB, fleet: av + transit, ts });
     }
     if (PER.mode !== "live") return;
-    if (selCities.size) applyView(); else { renderBoard(); renderMap(); renderStations(); }
+    if (selCities.size || selParts.size) applyView(); else { renderBoard(); renderMap(); renderStations(); }
   } catch (e) { /* CORS ali omrežje */ }
 }
 

@@ -76,7 +76,7 @@ Pri sistemih z več občinami (KOLESCE, BICIKEL, GO2GO) lahko pod zavihki izbere
 
 ## Interne analize po partnerjih
 
-Postaje sistema BICIKEL so razdeljene po partnerjih v `partners/bicikel.csv` (`postaja;partner`). Interni pogled odpreš z naslovom
+Postaje sistema BICIKEL so razdeljene po partnerjih v `partners/bicikel.csv` (`postaja;partner`). Interni pogled (izbereš lahko enega ali več partnerjev hkrati) odpreš z naslovom
 `https://petzni.github.io/nomago-bikes-live/#interno` (ali neposredno npr. `#interno-bicikel-btc`). Pod zavihki se pojavi izbira partnerja, sistem pa dobi tabelo »Primerjava partnerjev«.
 
 Postaje, ki jih ni v tabeli, so v skupini »Brez partnerja«. Ime postaje se mora ujemati z imenom v nextbike (velike/male črke, presledki in pomišljaji niso pomembni). Za drug sistem dodaj datoteko in vnos v `PARTNER_FILES` v `common.py`.

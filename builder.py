@@ -576,7 +576,7 @@ def main(now=None):
         pm = partner_map(g, stations, os.path.join(C.BASE, pfile)) if pfile else None
         hists[g["key"]] = build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, pm)
         out[g["key"]]["note"] = g.get("note")
-        if len(g["cities"]) > 1:
+        if len(g["cities"]) > 1 or C.PARTNER_FILES.get(g["key"]):
             out[g["key"]]["cube"] = build_cube(con, g, now, stations, hist)
         pfile = C.PARTNER_FILES.get(g["key"])
         if pfile:
