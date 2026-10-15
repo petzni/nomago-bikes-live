@@ -54,7 +54,16 @@ Zbiranje zdaj teče samo od sebe vsaki 2 minuti. Spremembe baze dodajaj kot nove
 
 Stran je na `https://petzni.github.io/nomago-bikes-live/`. Brez `DATABASE_URL` se stran ne objavi.
 
-### Kaj je javno
+#### 3. Netlify (neobvezno, lepši naslov)
+
+Netlify gosti samo stran (`netlify.toml`), podatke pa bere z GitHub Pages, ki se osvežujejo vsakih 15 minut. Netlify zato objavi novo različico le, ko se spremeni koda strani, kar ostane znotraj brezplačnega paketa.
+
+1. Netlify → **Add new project → Import an existing project → GitHub** → `petzni/nomago-bikes-live`. Nastavitve se preberejo iz `netlify.toml`, ničesar ni treba vpisovati.
+2. **Project configuration → Change project name**, npr. `nomago-bikes` → stran je na `https://nomago-bikes.netlify.app`.
+
+GitHub Pages mora ostati vklopljen, ker so tam podatki.
+
+## Kaj je javno
 
 Tabele v shemi `nb` niso dostopne prek Supabase API-ja. Javna sta le pogleda `nb_live_stations` (stanje postaj) in `nb_live_fleet` (število koles na voljo/v vožnji), samo za branje. Vožnje s številkami koles so dostopne le z `DATABASE_URL`. Na strani so samo agregati, relacije z manj kot 3 vožnjami pa so skrite.
 

@@ -1,0 +1,18 @@
+# Netlify gosti samo stran. Podatki (osveženi vsakih 15 min) ostanejo na GitHub Pages,
+# zato Netlify objavi novo različico le ob spremembi kode strani (brezplačni paket: ~20 objav na mesec).
+[build]
+  publish = "site"
+  command = """printf 'window.NB_CONFIG = { supabaseUrl: "%s", supabaseAnonKey: "%s", dataBase: "%s" };\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" "$DATA_BASE" > site/config.js"""
+  # objavi samo, če se je spremenila stran ali ta datoteka (README, builder ipd. ne porabijo objave)
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- site/ netlify.toml"
+
+[build.environment]
+  DATA_BASE = "https://petzni.github.io/nomago-bikes-live/data/"
+  SUPABASE_URL = "https://bvttfxahpsfpqaqmtexq.supabase.co"
+  # javni (publishable) ključ: omogoča samo branje pogledov nb_live_*
+  SUPABASE_ANON_KEY = "sb_publishable_qaQ-AQHoAyFv3UA1XPH99A_ajrySTCE"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=300"

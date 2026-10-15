@@ -281,6 +281,8 @@ footer p { margin: 0 }
 <script>
 (() => {
 const LIVE_API = "https://maps.nextbike.net/maps/nextbike-live.json?domains=";
+// Kje so podatki: privzeto ob strani (GitHub Pages); na Netlifyju jih stran bere z GitHub Pages (config.js → dataBase).
+const DATA_BASE = (window.NB_CONFIG || {}).dataBase || "data/";
 const $ = s => document.querySelector(s);
 const nf = (v, d = 0) => v == null ? "–" : Number(v).toLocaleString("sl-SI", { minimumFractionDigits: d, maximumFractionDigits: d });
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -319,7 +321,7 @@ function bindTips(root) {
 async function getJSON(p) { const r = await fetch(p, { cache: "no-store" }); if (!r.ok) throw new Error(p); return r.json(); }
 
 async function load(key) {
-  if (!cache[key]) cache[key] = await getJSON(`data/${key}.json`);
+  if (!cache[key]) cache[key] = await getJSON(`${DATA_BASE}${key}.json`);
   return cache[key];
 }
 
@@ -469,14 +471,14 @@ const pct = (a, b) => b ? Math.round((a - b) / b * 1000) / 10 : null;
 function histKeys() { const k = parentOf(current); return k === "all" ? META.systems.map(s => s.key) : [k]; }
 
 async function getHist(keys, months) {
-  const idx = await Promise.all(keys.map(k => hcache[k] || (hcache[k] = getJSON(`data/${k}-hist.json`))));
+  const idx = await Promise.all(keys.map(k => hcache[k] || (hcache[k] = getJSON(`${DATA_BASE}${k}-hist.json`))));
   const H = { days: idx[0].days, st: {}, wx: idx[0].wx || {}, cross: idx.some(x => x.cross), sd: [], sh: [], od: [], lg: [], sys: [], xb: [] };
   idx.forEach(x => Object.assign(H.st, x.st));
   if (!months) return H;
   const jobs = [];
   keys.forEach((k, j) => months.filter(m => idx[j].months.includes(m)).forEach(m => {
     const ck = `${k}|${m}`;
-    jobs.push(hcache[ck] || (hcache[ck] = getJSON(`data/${k}-hist-${m}.json`)));
+    jobs.push(hcache[ck] || (hcache[ck] = getJSON(`${DATA_BASE}${k}-hist-${m}.json`)));
   }));
   for (const M of await Promise.all(jobs)) for (const f of ["sd", "sh", "od", "lg", "sys", "xb"]) if (M[f]) H[f].push(...M[f]);
   return H;
@@ -834,7 +836,7 @@ async function flowMake() {
   try {
     const parts = await Promise.all(keys.flatMap((k, j) => months.map(m => {
       const ck = `flow|${k}|${m}`;
-      return (hcache[ck] || (hcache[ck] = getJSON(`data/${k}-flow-${m}.json`).catch(() => [])));
+      return (hcache[ck] || (hcache[ck] = getJSON(`${DATA_BASE}${k}-flow-${m}.json`).catch(() => [])));
     })));
     parts.forEach(p => rows.push(...p));
   } catch (e) { $("#f-state").textContent = "Podatkov o tokovih ni mogoče naložiti."; return; }
@@ -1375,7 +1377,7 @@ async function liveRefresh() {
 
 async function init() {
   try {
-    META = await getJSON("data/meta.json");
+    META = await getJSON(DATA_BASE + "meta.json");
   } catch (e) {
     $("#fresh").innerHTML = `<span class="err">Podatkov ni mogoče naložiti. Ali zbiralnik in builder tečeta?</span>`; return;
   }
