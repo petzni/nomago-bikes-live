@@ -18,17 +18,18 @@
   --body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --tiles: saturate(.55) contrast(.95);
+  --flow: #6a1fb5;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
   --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
-  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4) } }
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff } }
 :root[data-theme="dark"] {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
   --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
-  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4) }
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4); --flow: #c48cff }
 
 * { box-sizing: border-box }
 [hidden] { display: none !important }
@@ -113,6 +114,8 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #fmap { height: 560px; border-radius: 8px; overflow: hidden; background: var(--grid); z-index: 0 }
 @media (max-width: 700px) { #fmap { height: 420px } }
 #fmap .leaflet-tile-pane { filter: var(--tiles) brightness(.97) }
+#fmap.nobase .leaflet-tile-pane { visibility: hidden }
+#fmap.nobase { background: var(--surface) }
 .fcanvas { position: absolute; inset: 0; pointer-events: none; z-index: 450 }
 .fhud { position: absolute; left: 12px; bottom: 26px; z-index: 500; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line);
   border-radius: 8px; padding: 8px 12px; display: grid; gap: 2px; pointer-events: none }
@@ -217,6 +220,7 @@ footer p { margin: 0 }
         <button type="button" class="fbtn" id="f-play" disabled>▶ Predvajaj</button>
         <label class="fsel">Hitrost
           <select id="f-speed"><option value="240">1 dan v 4 min</option><option value="120">1 dan v 2 min</option><option value="60" selected>1 dan v 1 min</option><option value="30">1 dan v 30 s</option><option value="12">1 dan v 12 s</option></select></label>
+        <label class="fsel"><input type="checkbox" id="f-base" checked> podlaga zemljevida</label>
         <span class="fstate" id="f-state">Izberi obdobje zgoraj in klikni »Ustvari animacijo«.</span>
       </div>
       <input type="range" id="f-time" min="0" max="1000" value="0" step="1" aria-label="Čas animacije" disabled>
@@ -224,7 +228,7 @@ footer p { margin: 0 }
         <div id="fmap"></div>
         <div class="fhud" id="f-hud" hidden><b id="f-clock">–</b><span id="f-count"></span></div>
       </div>
-      <div class="label" id="f-note">Oranžne pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane zelena povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj). Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
+      <div class="label" id="f-note">Oranžne pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane vijolična povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj). Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
     </div>
   </section>
 
@@ -889,7 +893,7 @@ function flowDraw(dt = 0) {
   for (const [u, s] of Object.entries(FL.st)) P[u] = FL.map.latLngToContainerPoint(s.ll);
   const tr = cssv("--transit");
   // opravljene vožnje ostanejo kot povezava, ki se z vsako vožnjo odebeli
-  main.strokeStyle = cssv("--s5"); main.lineCap = "round";
+  main.strokeStyle = cssv("--flow"); main.lineCap = "round";
   for (const [k, n] of Object.entries(FL.pair)) {
     const [a, b] = k.split(">"), pa = P[a], pb = P[b];
     if (!pa || !pb) continue;
@@ -926,6 +930,7 @@ function flowDraw(dt = 0) {
 
 function flowInit() {
   $("#f-make").onclick = flowMake;
+  $("#f-base").addEventListener("change", e => $("#fmap").classList.toggle("nobase", !e.target.checked));
   $("#f-play").onclick = () => FL.playing ? flowPause() : flowPlay();
   $("#f-time").addEventListener("input", e => { flowSeek(+e.target.value); flowDraw(); });
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", flowDraw);
