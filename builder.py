@@ -59,7 +59,7 @@ def weather(lat, lng):
     if os.environ.get("NB_WEATHER", "1") != "1" or lat is None:
         return {}
     url = ("https://api.open-meteo.com/v1/forecast?latitude={:.4f}&longitude={:.4f}"
-           "&daily=temperature_2m_max,precipitation_sum&past_days=31&forecast_days=1&timezone=Europe%2FLjubljana"
+           "&daily=temperature_2m_max,precipitation_sum&past_days=92&forecast_days=1&timezone=Europe%2FLjubljana"
            ).format(lat, lng)
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
@@ -365,6 +365,123 @@ def build_cube(con, g, now, stations, hist):
     }
 
 
+def partner_map(g, stations, path):
+    """uid -> partner za postaje sistema (iz tabele postaja;partner)."""
+    mapping = {}
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f, delimiter=";"):
+            if row.get("postaja") and row.get("partner"):
+                mapping[_norm(row["postaja"])] = row["partner"].strip()
+    return {uid: mapping.get(_norm(s["name"]), C.NO_PARTNER)
+            for uid, s in stations.items() if s["domain"] in g["domains"]}
+
+
+def daily_rollups(con, now, stations, hist, first_ts):
+    """Dnevni povzetki po postajah (čas brez koles, najmanj koles 8-9) in sistemih (flota, kolesa v vožnji).
+    Dneve iz podrobne zgodovine izračuna sproti, zaključene shrani v bazo, starejše prebere iz baze."""
+    today0 = day_start(local(now))
+    first_day = local(first_ts).date()
+    st_daily, sys_daily = {}, {}
+    span = [today0 - timedelta(days=i) for i in range(57, -1, -1)]
+    span = [d for d in span if d.date() >= first_day]
+    for uid, h in hist.items():
+        if uid not in stations:
+            continue
+        for d in span:
+            a, b = ts_of(d), ts_of(d + timedelta(days=1))
+            segs = h.segments(a, b, now)
+            if not segs:
+                continue
+            cov = sum(e - x for x, e, _ in segs)
+            emp = sum(e - x for x, e, v in segs if v == 0)
+            m = h.segments(ts_of(d.replace(hour=8)), ts_of(d.replace(hour=9)), now)
+            st_daily[(d.date().isoformat(), uid)] = (emp, cov, min(v for _, _, v in m) if m else -1)
+    agg = defaultdict(lambda: [0, 0, 0])
+    for ts, dom, av, it in con.execute("SELECT ts, domain, available, in_transit FROM fleet_series WHERE ts >= ?",
+                                       (ts_of(span[0]) if span else now,)):
+        r = agg[(local(ts).date().isoformat(), dom)]
+        r[0] += av + it; r[1] += 1; r[2] = max(r[2], it)
+    for k, (tot, n, pk) in agg.items():
+        sys_daily[k] = (round(tot / n, 1), pk)
+    today = today0.date().isoformat()
+    try:
+        have = {(r[0], r[1]) for r in con.execute("SELECT day, station_uid FROM station_daily")}
+        rows = [(k[0], k[1], *v) for k, v in st_daily.items() if k[0] < today and k not in have]
+        if rows:
+            con.executemany("INSERT INTO station_daily VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING", rows)
+        have_s = {(r[0], r[1]) for r in con.execute("SELECT day, domain FROM system_daily")}
+        rows = [(k[0], k[1], *v) for k, v in sys_daily.items() if k[0] < today and k not in have_s]
+        if rows:
+            con.executemany("INSERT INTO system_daily VALUES (?,?,?,?) ON CONFLICT DO NOTHING", rows)
+        con.commit()
+        oldest = span[0].date().isoformat() if span else today
+        for day, uid, e, c, m in con.execute("SELECT * FROM station_daily WHERE day < ?", (oldest,)):
+            st_daily[(day, uid)] = (e, c, m)
+        for day, dom, f, pk in con.execute("SELECT * FROM system_daily WHERE day < ?", (oldest,)):
+            sys_daily[(day, dom)] = (f, pk)
+    except Exception as e:  # tabel še ni (migracija): deluje le z zadnjimi 60 dnevi
+        print(f"opozorilo: dnevni povzetki niso shranjeni ({type(e).__name__}: {e})")
+    return st_daily, sys_daily
+
+
+def build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, partners):
+    """Podatki za izbiro poljubnega obdobja na strani: po postajah in dnevih (izračun v brskalniku)."""
+    doms = g["domains"]
+    ph = ",".join("?" * len(doms))
+    today0 = day_start(local(now))
+    d0 = max(local(first_ts).date(), (today0 - timedelta(days=C.HIST_MAX_DAYS - 1)).date())
+    days = []
+    d = d0
+    while d <= today0.date():
+        days.append(d.isoformat())
+        d += timedelta(days=1)
+    di = {x: i for i, x in enumerate(days)}
+    st = {u: s for u, s in stations.items() if s["domain"] in doms}
+    sd = defaultdict(lambda: [0, 0, 0.0, 0])
+    sh, od, lg, xb = Counter(), Counter(), defaultdict(list), defaultdict(lambda: [0, 0.0])
+    start = ts_of(datetime.combine(d0, datetime.min.time()).replace(tzinfo=TZ))
+    for fu, tu, a, b, dur, km in con.execute(
+            f"""SELECT from_uid, to_uid, start_ts, end_ts, dur_s, km FROM trips
+                WHERE kind='trip' AND domain IN ({ph}) AND start_ts >= ?""", (*doms, start)):
+        la = local(a)
+        i = di.get(la.date().isoformat())
+        if i is None:
+            continue
+        if fu in st:
+            r = sd[(fu, i)]
+            r[0] += 1; r[1] += dur; r[2] += km
+            sh[(fu, i, la.hour)] += 1
+        if tu in st:
+            j = di.get(local(b).date().isoformat(), i)
+            sd[(tu, j)][3] += 1
+        if fu in st and tu in st:
+            od[(fu, tu, i)] += 1
+            if fu != tu:
+                lg[i].append((fu, tu, i, round(km, 1), round(dur / 60)))
+            if len(doms) > 1 and st[fu]["domain"] != st[tu]["domain"]:
+                xb[i][0] += 1; xb[i][1] += km
+    pair_tot = Counter()
+    for (a, b, i), n in od.items():
+        pair_tot[(a, b)] += n
+    rows = []
+    keys = set(sd) | {(u, di[day]) for (day, u) in st_daily if u in st and day in di}
+    for (u, i) in sorted(keys):
+        dep, sec, km, arr = sd.get((u, i), (0, 0, 0.0, 0))
+        e, c, m = st_daily.get((days[i], u), (0, 0, -1))
+        rows.append([u, i, dep, sec, round(km, 1), arr, e, c, m])
+    return {
+        "days": days,
+        "st": {u: [s["name"], s["city_name"], s["domain"], partners.get(u) if partners else None] for u, s in st.items()},
+        "sd": rows,
+        "sh": [[u, i, h, n] for (u, i, h), n in sh.items()],
+        "od": [[a, b, i, n] for (a, b, i), n in od.items() if pair_tot[(a, b)] >= C.PUBLIC_MIN_ROUTE_TRIPS],
+        "lg": [x for i in sorted(lg) for x in sorted(lg[i], key=lambda t: -t[3])[:5]],
+        "sys": [[dom, di[day], f, pk] for (day, dom), (f, pk) in sys_daily.items() if dom in doms and day in di],
+        "xb": [[i, n, round(km, 1)] for i, (n, km) in sorted(xb.items())] if len(doms) > 1 else None,
+        "wx": {k: [v.get("tmax"), v.get("rain")] for k, v in wx.items() if k in di},
+    }
+
+
 def build_partners(con, g, now, stations, hist, out, path):
     """Analize po partnerjih (interno): postaje sistema razdeli po tabeli postaja;partner."""
     mapping = {}
@@ -412,7 +529,7 @@ def main(now=None):
         s["city_name"] = city_names.get(s["city"], "")
     hist_rows = defaultdict(list)
     for uid, ts, b in con.execute("SELECT station_uid, ts, bikes FROM station_status WHERE ts >= ? ORDER BY ts",
-                                  (now - 20 * DAY,)):
+                                  (now - 60 * DAY,)):
         hist_rows[uid].append((ts, b))
     hist = {u: StationHistory(r) for u, r in hist_rows.items()}
 
@@ -433,11 +550,24 @@ def main(now=None):
         g["lat"], g["lng"] = con.execute(f"SELECT avg(lat), avg(lng) FROM stations WHERE domain IN ({ph})",
                                          g["domains"]).fetchone()
 
+    first_ts = con.execute("SELECT min(ts) FROM fleet_series").fetchone()[0] or now
+    try:
+        f2 = con.execute("SELECT min(day) FROM system_daily").fetchone()[0]
+        if f2:
+            first_ts = min(first_ts, ts_of(datetime.fromisoformat(f2).replace(tzinfo=TZ)))
+    except Exception:
+        pass
+    st_daily, sys_daily = daily_rollups(con, now, stations, hist, first_ts)
+
     os.makedirs(C.SITE_DATA, exist_ok=True)
-    out = {}
+    out, hists = {}, {}
     for g in groups:
-        out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, weather(g["lat"], g["lng"]),
+        wx = weather(g["lat"], g["lng"])
+        out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, wx,
                                      cross_border=len(g["domains"]) > 1)
+        pfile = C.PARTNER_FILES.get(g["key"])
+        pm = partner_map(g, stations, os.path.join(C.BASE, pfile)) if pfile else None
+        hists[g["key"]] = build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, pm)
         out[g["key"]]["note"] = g.get("note")
         if len(g["cities"]) > 1:
             out[g["key"]]["cube"] = build_cube(con, g, now, stations, hist)
@@ -458,6 +588,19 @@ def main(now=None):
     for k, v in out.items():
         with open(os.path.join(C.SITE_DATA, f"{k}.json"), "w", encoding="utf-8") as f:
             json.dump(v, f, ensure_ascii=False, separators=(",", ":"))
+    for k, v in hists.items():  # indeks + ena datoteka na mesec, da stran naloži le potrebne mesece
+        days = v["days"]
+        months = sorted({d[:7] for d in days})
+        idx = {"days": days, "months": months, "st": v["st"], "wx": v["wx"], "cross": v["xb"] is not None}
+        with open(os.path.join(C.SITE_DATA, f"{k}-hist.json"), "w", encoding="utf-8") as f:
+            json.dump(idx, f, ensure_ascii=False, separators=(",", ":"))
+        mon = {m: {"sd": [], "sh": [], "od": [], "lg": [], "sys": [], "xb": []} for m in months}
+        for key, pos in (("sd", 1), ("sh", 1), ("od", 2), ("lg", 2), ("sys", 1), ("xb", 0)):
+            for row in v[key] or []:
+                mon[days[row[pos]][:7]][key].append(row)
+        for m, data in mon.items():
+            with open(os.path.join(C.SITE_DATA, f"{k}-hist-{m}.json"), "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"generated_at": now, "demo": os.environ.get("NB_DEMO") == "1",
             "systems": [{"key": g["key"], "name": g["name"], "domains": g["domains"], "cities": g["cities"],
                          "note": g.get("note"), "partners": g.get("partners")} for g in groups]}

@@ -37,6 +37,7 @@ LOOP_SPEED_KMH = 10        # za A->A vožnje: ocena km iz trajanja
 LOOP_MAX_KM = 8
 CO2_KG_PER_KM = 0.15       # ocena prihranka, če vožnja nadomesti avto
 KCAL_PER_KM = 30
+HIST_MAX_DAYS = 400        # koliko dni nazaj lahko izbiraš obdobja na strani
 PUBLIC_MIN_ROUTE_TRIPS = 3 # relacije z manj vožnjami se na javni strani ne prikažejo (GDPR)
 
 SCHEMA = """
@@ -62,6 +63,11 @@ CREATE INDEX IF NOT EXISTS trips_end ON trips(domain, end_ts);
 CREATE INDEX IF NOT EXISTS trips_start ON trips(domain, start_ts);
 CREATE TABLE IF NOT EXISTS fleet_series (ts INTEGER, domain TEXT, available INTEGER, in_transit INTEGER,
   PRIMARY KEY (domain, ts));
+-- dnevni povzetki, ki ostanejo tudi po čiščenju podrobne zgodovine (60 dni)
+CREATE TABLE IF NOT EXISTS station_daily (day TEXT, station_uid INTEGER, empty_s INTEGER, cov_s INTEGER,
+  min89 INTEGER, PRIMARY KEY (day, station_uid));
+CREATE TABLE IF NOT EXISTS system_daily (day TEXT, domain TEXT, fleet_avg REAL, peak_transit INTEGER,
+  PRIMARY KEY (day, domain));
 """
 
 
@@ -77,6 +83,10 @@ class PG:
 
     def execute(self, sql, params=()):
         return self.c.execute(sql.replace("?", "%s"), params)
+
+    def executemany(self, sql, rows):
+        with self.c.cursor() as cur:
+            cur.executemany(sql.replace("?", "%s"), rows)
 
     def commit(self):
         pass

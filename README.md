@@ -58,6 +58,12 @@ Stran je na `https://petzni.github.io/nomago-bikes-live/`. Brez `DATABASE_URL` s
 
 Tabele v shemi `nb` niso dostopne prek Supabase API-ja. Javna sta le pogleda `nb_live_stations` (stanje postaj) in `nb_live_fleet` (število koles na voljo/v vožnji), samo za branje. Vožnje s številkami koles so dostopne le z `DATABASE_URL`. Na strani so samo agregati, relacije z manj kot 3 vožnjami pa so skrite.
 
+## Obdobja za nazaj
+
+Pod zavihki je izbira obdobja: Danes (v živo), Včeraj, Zadnjih 7 dni, Prejšnji teden, Ta mesec, Prejšnji mesec ali Po meri (od–do). Obdobje lahko omejiš na dneve v tednu (npr. samo delavnike), s klikom na stolpec v grafu »Vožnje po dnevih« pa dodajaš ali odstranjuješ posamezne dneve. Spremembe so prikazane glede na enako dolgo obdobje tik pred izbranim.
+
+Pogled se izračuna v brskalniku iz dnevnih podatkov po postajah (`data/<sistem>-hist.json` + ena datoteka na mesec). Deluje skupaj z izbiro občin in partnerjev. Čas brez koles in jutranje luknje za dneve, starejše od 60 dni, builder hrani v tabeli `nb.station_daily` (flota v `nb.system_daily`); vožnje ostanejo v `nb.trips` neomejeno. Izbirati je mogoče do 400 dni nazaj (`HIST_MAX_DAYS`).
+
 ## Izbira občin
 
 Pri sistemih z več občinami (KOLESCE, BICIKEL, GO2GO) lahko pod zavihki izbereš eno ali več občin. Pogled se izračuna v brskalniku iz agregatov po postajah (`cube` v JSON datoteki sistema). Vožnja šteje v občini, kjer se začne. Kolesa v vožnji in flota so vezani na celoten sistem, zato jih pri izbiri občin ni.
