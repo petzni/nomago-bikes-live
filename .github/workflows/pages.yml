@@ -3,8 +3,8 @@ name: Statistika in objava strani
 # Vsakih 15 minut izračuna statistiko iz Supabase in objavi stran na GitHub Pages.
 # Potrebuje skrivnost DATABASE_URL (Supabase Session pooler); brez nje se nič ne objavi.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  schedule:  # rezerva; glavni sprožilec je Supabase (nb.trigger_build) vsakih 15 min
+    - cron: "*/30 * * * *"
   push:
     branches: [main]
   workflow_dispatch:

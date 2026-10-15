@@ -43,6 +43,18 @@ builder.py ──► site/data/*.json ──► GitHub Pages (site/index.html)
 
 Zbiranje zdaj teče samo od sebe vsaki 2 minuti. Spremembe baze dodajaj kot nove datoteke v `supabase/migrations/` (obstoječih ne spreminjaj, ker se ne izvedejo ponovno).
 
+### Sprožilec izračuna
+
+GitHub urnik (`schedule`) je nezanesljiv (zamude in izpadi več ur), zato izračun vsakih 15 minut sproži Supabase (`nb.trigger_build`, migracija `…_nb_trigger_build.sql`). Potrebuje žeton:
+
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate: repozitorij `petzni/nomago-bikes-live`, dovoljenje **Actions: Read and write**, rok veljavnosti npr. 1 leto.
+2. Supabase → SQL Editor:
+   ```sql
+   insert into nb.config values ('gh_token', 'github_pat_...') on conflict (key) do update set value = excluded.value;
+   ```
+
+GitHub urnik ostane kot rezerva vsakih 30 minut.
+
 ### 2. GitHub (izračun in stran)
 
 1. **Settings → Pages → Source: GitHub Actions**.
