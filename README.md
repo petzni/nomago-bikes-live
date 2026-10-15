@@ -68,6 +68,8 @@ Pogled se izračuna v brskalniku iz dnevnih podatkov po postajah (`data/<sistem>
 
 Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je oranžna pika, ki potuje od postaje do postaje. Ko vožnja konča, med postajama ostane povezava, ki se z vsako naslednjo vožnjo (v obe smeri skupaj) odebeli. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
 
+Animacijo lahko izvoziš kot sliko končnega stanja (PNG) ali kot video (MP4 ali WebM, odvisno od brskalnika). Video se posname v brskalniku v realnem času izbrane hitrosti, zato mora zavihek med snemanjem ostati odprt.
+
 ## Izbira občin
 
 Pri sistemih z več občinami (KOLESCE, BICIKEL, GO2GO) lahko pod zavihki izbereš eno ali več občin. Pogled se izračuna v brskalniku iz agregatov po postajah (`cube` v JSON datoteki sistema). Vožnja šteje v občini, kjer se začne. Kolesa v vožnji in flota so vezani na celoten sistem, zato jih pri izbiri občin ni.

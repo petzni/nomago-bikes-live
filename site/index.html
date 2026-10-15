@@ -221,6 +221,8 @@ footer p { margin: 0 }
         <label class="fsel">Hitrost
           <select id="f-speed"><option value="240">1 dan v 4 min</option><option value="120">1 dan v 2 min</option><option value="60" selected>1 dan v 1 min</option><option value="30">1 dan v 30 s</option><option value="12">1 dan v 12 s</option></select></label>
         <label class="fsel"><input type="checkbox" id="f-base" checked> podlaga zemljevida</label>
+        <button type="button" class="fbtn" id="f-png" disabled>Izvozi sliko</button>
+        <button type="button" class="fbtn" id="f-rec" disabled>Izvozi video</button>
         <span class="fstate" id="f-state">Izberi obdobje zgoraj in klikni »Ustvari animacijo«.</span>
       </div>
       <input type="range" id="f-time" min="0" max="1000" value="0" step="1" aria-label="Čas animacije" disabled>
@@ -779,7 +781,7 @@ function flowCheck() {
 function flowEnsureMap() {
   if (FL.map || !window.L) return;
   FL.map = L.map($("#fmap"), { scrollWheelZoom: false, zoomSnap: .5 });
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, crossOrigin: "anonymous",
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(FL.map);
   FL.map.setView([46.1, 14.8], 8);
   FL.map.on("click", () => FL.map.scrollWheelZoom.enable());
@@ -835,7 +837,7 @@ async function flowMake() {
   const pts = Object.entries(st).filter(([u, s]) => s.inU && (U || trips.length)).map(([, s]) => s.ll);
   if (pts.length) { FL.map.invalidateSize(); FL.map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 15 }); }
   $("#f-time").disabled = false; $("#f-time").max = FL.T; $("#f-time").value = 0;
-  $("#f-play").disabled = !trips.length; $("#f-hud").hidden = false; $("#f-make").classList.remove("primary");
+  $("#f-play").disabled = $("#f-png").disabled = $("#f-rec").disabled = !trips.length; $("#f-hud").hidden = false; $("#f-make").classList.remove("primary");
   const lab = sel.length === 1 ? `${DAYS[wdOf(sel[0])]} ${fmtLong(sel[0])}` : `${sel.length} dni (${fmtShort(sel[0])} – ${fmtLong(sel[sel.length - 1])})`;
   $("#f-state").textContent = trips.length ? `${nf(trips.length)} voženj · ${lab}.${note}` : `V izbranem obdobju ni voženj na prikazanih relacijah.${note}`;
   flowDraw();
@@ -845,7 +847,7 @@ async function flowMake() {
 function flowSeek(t) {
   FL.t = Math.max(0, Math.min(FL.T, t));
   if (FL.endPtr && FL.byEnd[FL.endPtr - 1] && FL.byEnd[FL.endPtr - 1].e > FL.t) { FL.pair = {}; FL.endPtr = 0; }
-  while (FL.endPtr < FL.byEnd.length && FL.byEnd[FL.endPtr].e <= FL.t) {
+  while (FL.endPtr < FL.byEnd.length && (FL.byEnd[FL.endPtr].e <= FL.t || FL.t >= FL.T)) {
     const x = FL.byEnd[FL.endPtr++];
     if (!x.loop) { const k = x.a < x.b ? x.a + ">" + x.b : x.b + ">" + x.a; FL.pair[k] = (FL.pair[k] || 0) + 1; }
   }
@@ -864,7 +866,8 @@ function flowTick(now) {
   flowSeek(FL.t + dt * 1440 / +$("#f-speed").value);
   $("#f-time").value = FL.t;
   flowDraw(dt);
-  if (FL.t >= FL.T) { flowPause(); return; }
+  if (FL.rec) flowCompose(FL.rec.ctx, FL.rec.cv);
+  if (FL.t >= FL.T) { flowPause(); if (FL.rec) flowRecFinish(); return; }
   requestAnimationFrame(flowTick);
 }
 
@@ -906,7 +909,7 @@ function flowDraw(dt = 0) {
   while (lo < hi) { const m = (lo + hi) >> 1; FL.trips[m].s < from ? lo = m + 1 : hi = m; }
   let on = 0;
   ctx.fillStyle = tr;
-  for (let i = lo; i < FL.trips.length && FL.trips[i].s <= t; i++) {
+  for (let i = lo; t < FL.T && i < FL.trips.length && FL.trips[i].s <= t; i++) {
     const x = FL.trips[i]; if (x.e <= t) continue;
     on++;
     const p = (t - x.s) / (x.e - x.s);
@@ -922,13 +925,100 @@ function flowDraw(dt = 0) {
   main.setTransform(d, 0, 0, d, 0, 0); main.fillStyle = cssv("--ink"); main.strokeStyle = cssv("--surface"); main.lineWidth = 1.5;
   for (const [u, s] of Object.entries(FL.st)) if (s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 3.6, 0, 7); main.fill(); main.stroke(); }
   main.setTransform(1, 0, 0, 1, 0, 0);
-  const dayI = Math.min(FL.days.length - 1, Math.floor(t / 1440)), m = Math.floor(t % 1440);
+  const dayI = Math.min(FL.days.length - 1, Math.floor(t / 1440)), m = t >= FL.T ? 1440 : Math.floor(t % 1440);
   const iso = FL.days[dayI] || FL.days[0];
-  $("#f-clock").textContent = `${DAYS[wdOf(iso)]} ${fmtShort(iso)} · ${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  $("#f-clock").textContent = `${DAYS[wdOf(iso)]} ${fmtShort(iso)} · ${String(m >= 1440 ? 24 : Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
   $("#f-count").textContent = `${nf(on)} koles v vožnji · ${nf(FL.endPtr)} od ${nf(FL.total)} voženj`;
 }
 
+/* ------- izvoz: slika končnega stanja in video animacije ------- */
+function flowTitle() {
+  const sys = current === "all" ? "Vsi sistemi" : (META.systems.find(s => s.key === parentOf(current)) || {}).name || "";
+  const part = (META.systems.flatMap(s => s.partners || []).find(x => x.key === current) || {}).name;
+  const d = FL.days, per = d.length === 1 ? fmtLong(d[0]) : `${fmtShort(d[0])} – ${fmtLong(d[d.length - 1])}`;
+  return [sys, part, selCities.size ? [...selCities].join(", ") : null, per].filter(Boolean).join(" · ");
+}
+function flowCompose(ctx, cv) {
+  const box = $("#fmap").getBoundingClientRect(), k = cv.width / box.width, base = $("#f-base").checked;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.filter = "none";
+  ctx.fillStyle = base ? cssv("--grid") : cssv("--surface"); ctx.fillRect(0, 0, cv.width, cv.height);
+  if (base) {
+    ctx.filter = cssv("--tiles") || "none";
+    for (const img of $("#fmap").querySelectorAll(".leaflet-tile-pane img.leaflet-tile-loaded")) {
+      const r = img.getBoundingClientRect();
+      try { ctx.drawImage(img, (r.left - box.left) * k, (r.top - box.top) * k, r.width * k, r.height * k); } catch (e) {}
+    }
+    ctx.filter = "none";
+  }
+  ctx.drawImage(FL.cv, 0, 0, cv.width, cv.height);
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  const ink = cssv("--ink"), sur = cssv("--surface"), mut = cssv("--muted");
+  const font = (w, px, fam) => `${w} ${px}px ${fam}`;
+  // naslov
+  ctx.font = font(700, 15, cssv("--body")); const title = flowTitle(), tw = ctx.measureText(title).width;
+  ctx.globalAlpha = .9; ctx.fillStyle = sur; ctx.fillRect(10, 10, tw + 20, 30); ctx.globalAlpha = 1;
+  ctx.fillStyle = ink; ctx.fillText(title, 20, 30);
+  // ura in števec
+  const clock = $("#f-clock").textContent, cnt = $("#f-count").textContent;
+  ctx.font = font(800, 20, cssv("--display")); const w1 = ctx.measureText(clock).width;
+  ctx.font = font(400, 12, cssv("--body")); const w2 = ctx.measureText(cnt).width;
+  const bw = Math.max(w1, w2) + 22, by = box.height - 66;
+  ctx.globalAlpha = .9; ctx.fillStyle = sur; ctx.fillRect(10, by, bw, 54); ctx.globalAlpha = 1;
+  ctx.fillStyle = ink; ctx.font = font(800, 20, cssv("--display")); ctx.fillText(clock, 21, by + 24);
+  ctx.fillStyle = mut; ctx.font = font(400, 12, cssv("--body")); ctx.fillText(cnt, 21, by + 43);
+  // vir
+  const src = (base ? "© OpenStreetMap · " : "") + "Nomago Bikes v živo";
+  ctx.font = font(400, 11, cssv("--body")); const w3 = ctx.measureText(src).width;
+  ctx.globalAlpha = .85; ctx.fillStyle = sur; ctx.fillRect(box.width - w3 - 16, box.height - 20, w3 + 12, 16); ctx.globalAlpha = 1;
+  ctx.fillStyle = mut; ctx.fillText(src, box.width - w3 - 10, box.height - 8);
+}
+function flowCanvas() { const c = document.createElement("canvas"); c.width = FL.cv.width; c.height = FL.cv.height; return c; }
+function flowFileName(ext) { return `tokovi-${parentOf(current)}-${FL.days[0]}${FL.days.length > 1 ? "_" + FL.days[FL.days.length - 1] : ""}.${ext}`; }
+function flowSave(blob, name) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function flowPng() {
+  if (!FL.built) return;
+  flowPause(); const t0 = FL.t;
+  flowSeek(FL.T); $("#f-time").value = FL.T; flowDraw();
+  const c = flowCanvas(); flowCompose(c.getContext("2d"), c);
+  try {
+    c.toBlob(b => { if (b) flowSave(b, flowFileName("png")); else $("#f-state").textContent = "Slike ni bilo mogoče ustvariti."; }, "image/png");
+  } catch (e) {
+    $("#f-state").textContent = "Podlage zemljevida ni mogoče izvoziti. Izklopi »podlaga zemljevida« in poskusi znova.";
+  }
+}
+function flowRecStart() {
+  if (FL.rec) { FL.rec.cancel = true; FL.rec.mr.stop(); return; }
+  if (!FL.built || !window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) { $("#f-state").textContent = "Ta brskalnik ne podpira snemanja videa. Poskusi v Chromu, Edgu ali Firefoxu."; return; }
+  const type = ["video/mp4;codecs=avc1", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find(t => MediaRecorder.isTypeSupported(t));
+  if (!type) { $("#f-state").textContent = "Ta brskalnik ne podpira snemanja videa."; return; }
+  const cv = flowCanvas(), ctx = cv.getContext("2d");
+  try { flowCompose(ctx, cv); cv.toDataURL(); }
+  catch (e) { $("#f-state").textContent = "Podlage zemljevida ni mogoče posneti. Izklopi »podlaga zemljevida« in poskusi znova."; return; }
+  const mr = new MediaRecorder(cv.captureStream(30), { mimeType: type, videoBitsPerSecond: 8e6 }), chunks = [];
+  FL.rec = { cv, ctx, mr, cancel: false };
+  mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+  mr.onstop = () => {
+    const ok = !FL.rec.cancel; FL.rec = null;
+    $("#f-rec").textContent = "Izvozi video"; ["#f-make", "#f-png", "#f-play", "#f-time"].forEach(q => $(q).disabled = false);
+    if (ok) { flowSave(new Blob(chunks, { type }), flowFileName(type.includes("mp4") ? "mp4" : "webm")); $("#f-state").textContent = "Video je shranjen."; }
+    else { flowPause(); $("#f-state").textContent = "Snemanje preklicano."; }
+  };
+  ["#f-make", "#f-png", "#f-play", "#f-time"].forEach(q => $(q).disabled = true);
+  $("#f-rec").textContent = "■ Prekliči snemanje";
+  const secs = Math.round(FL.days.length * +$("#f-speed").value);
+  $("#f-state").textContent = `Snemam … traja približno ${secs >= 90 ? Math.round(secs / 60) + " min" : secs + " s"}. Pusti zavihek odprt.`;
+  flowPause(); flowSeek(0); flowClearTrails(); flowDraw();
+  mr.start(1000);
+  flowPlay();
+}
+function flowRecFinish() { setTimeout(() => { if (FL.rec) { flowCompose(FL.rec.ctx, FL.rec.cv); FL.rec.mr.stop(); } }, 1500); }
+
 function flowInit() {
+  $("#f-png").onclick = flowPng;
+  $("#f-rec").onclick = flowRecStart;
   $("#f-make").onclick = flowMake;
   $("#f-base").addEventListener("change", e => $("#fmap").classList.toggle("nobase", !e.target.checked));
   $("#f-play").onclick = () => FL.playing ? flowPause() : flowPlay();
