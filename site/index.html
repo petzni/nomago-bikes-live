@@ -232,7 +232,7 @@ footer p { margin: 0 }
         <div id="fmap"></div>
         <div class="fhud" id="f-hud" hidden><b id="f-clock">–</b><span id="f-count"></span></div>
       </div>
-      <div class="label" id="f-note">Modre pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj): <b style="color:var(--flow-in)">oranžna</b> znotraj iste občine, <b style="color:var(--flow)">vijolična</b> med različnima občinama. Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
+      <div class="label" id="f-note">Modre pike so kolesa v vožnji. Polne točke so izbrane postaje, prazni obrisi ostale postaje sistema. Ko vožnja konča, med postajama ostane povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj): <b style="color:var(--flow-in)">oranžna</b> znotraj iste občine, <b style="color:var(--flow)">vijolična</b> med različnima občinama. Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
     </div>
   </section>
 
@@ -856,7 +856,8 @@ async function flowMake() {
   trips.sort((x, y) => x.s - y.s);
   Object.assign(FL, { trips, byEnd: [...trips].sort((x, y) => x.e - y.e), st, days: sel, T: sel.length * 1440, t: 0, pair: {}, endPtr: 0,
     maxDur: Math.max(0, ...trips.map(x => x.e - x.s)), total: trips.length, built: true, sig: flowSig() });
-  const pts = Object.entries(st).filter(([u, s]) => s.inU && (U || trips.length)).map(([, s]) => s.ll);
+  const used = new Set(trips.flatMap(x => [x.a, x.b]));
+  const pts = Object.entries(st).filter(([u, s]) => s.inU || used.has(u)).map(([, s]) => s.ll);
   if (pts.length) { FL.map.invalidateSize(); FL.map.fitBounds(L.latLngBounds(pts), { padding: [24, 24], maxZoom: 15 }); }
   $("#f-time").disabled = false; $("#f-time").max = FL.T; $("#f-time").value = 0;
   $("#f-play").disabled = $("#f-png").disabled = $("#f-rec").disabled = !trips.length; $("#f-hud").hidden = false; $("#f-make").classList.remove("primary");
@@ -948,6 +949,10 @@ function flowDraw(dt = 0) {
   // postaje na vrhu: temna pika z belim robom, dobro vidna na zemljevidu
   main.setTransform(d, 0, 0, d, 0, 0); main.fillStyle = cssv("--ink"); main.strokeStyle = cssv("--surface"); main.lineWidth = 1.5;
   for (const [u, s] of Object.entries(FL.st)) if (s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 3.6, 0, 7); main.fill(); main.stroke(); }
+  // ostale postaje (izven izbire) samo kot obris
+  main.strokeStyle = cssv("--ink"); main.lineWidth = 1.3; main.globalAlpha = .8;
+  for (const [u, s] of Object.entries(FL.st)) if (!s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 3.2, 0, 7); main.stroke(); }
+  main.globalAlpha = 1;
   main.setTransform(1, 0, 0, 1, 0, 0);
   const dayI = Math.min(FL.days.length - 1, Math.floor(t / 1440)), m = t >= FL.T ? 1440 : Math.floor(t % 1440);
   const iso = FL.days[dayI] || FL.days[0];
