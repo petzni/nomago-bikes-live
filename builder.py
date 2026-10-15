@@ -510,12 +510,25 @@ def build_partners(con, g, now, stations, hist, out, path):
         key = f'{g["key"]}-{re.sub(r"[^a-z0-9]+", "-", _norm(partner).translate(str.maketrans("čšžćđ", "cszcd"))).strip("-")}'
         o = build_system(con, g["domains"], now, f'{g["name"]} · {partner}', stations, hist, {},
                          only=by_partner[partner])
-        o["parent"] = g["key"]
-        o["scope"] = "partnerja"
-        out[key] = o
         result.append({"key": key, "name": partner, **{k: v for k, v in o["partner"].items() if k != "station_names"}})
-    out[g["key"]]["partners_compare"] = result
-    return [{"key": r["key"], "name": r["name"]} for r in result]
+    return result
+
+
+def write_internal(con, bundle):
+    """Interni podatki (partnerji) gredo v bazo, kjer jih bere le prijavljen uporabnik (funkcija nb_internal).
+    Brez Postgresa (lokalni razvoj) se zapišejo v mapo NB_INTERNAL_DIR, privzeto data/ (ni objavljena)."""
+    body = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"))
+    if getattr(con, "is_pg", False):
+        try:
+            con.execute("""INSERT INTO internal_files (path, body, updated_at) VALUES (?, ?::jsonb, now())
+                           ON CONFLICT (path) DO UPDATE SET body = excluded.body, updated_at = now()""", ("bundle", body))
+        except Exception as e:
+            print(f"opozorilo: interni podatki niso shranjeni ({type(e).__name__}: {e})")
+        return
+    d = os.environ.get("NB_INTERNAL_DIR", os.path.join(C.BASE, "data"))
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "internal.json"), "w", encoding="utf-8") as f:
+        f.write(body)
 
 
 def main(now=None):
@@ -567,20 +580,21 @@ def main(now=None):
     st_daily, sys_daily = daily_rollups(con, now, stations, hist, first_ts)
 
     os.makedirs(C.SITE_DATA, exist_ok=True)
-    out, hists = {}, {}
+    out, hists, internal = {}, {}, {}
     for g in groups:
         wx = weather(g["lat"], g["lng"])
         out[g["key"]] = build_system(con, g["domains"], now, g["name"], stations, hist, wx,
                                      cross_border=len(g["domains"]) > 1)
         pfile = C.PARTNER_FILES.get(g["key"])
         pm = partner_map(g, stations, os.path.join(C.BASE, pfile)) if pfile else None
-        hists[g["key"]] = build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, pm)
+        hists[g["key"]] = build_hist(con, g, now, stations, st_daily, sys_daily, first_ts, wx, None)  # javno brez partnerjev
         out[g["key"]]["note"] = g.get("note")
         if len(g["cities"]) > 1 or C.PARTNER_FILES.get(g["key"]):
             out[g["key"]]["cube"] = build_cube(con, g, now, stations, hist)
-        pfile = C.PARTNER_FILES.get(g["key"])
-        if pfile:
-            g["partners"] = build_partners(con, g, now, stations, hist, out, os.path.join(C.BASE, pfile))
+        if pfile:  # interni podatki (partnerji): ne gredo na javno stran
+            cmp = build_partners(con, g, now, stations, hist, out, os.path.join(C.BASE, pfile))
+            internal[g["key"]] = {"partners": [{"key": r["key"], "name": r["name"]} for r in cmp],
+                                  "compare": cmp, "map": {str(u): p for u, p in pm.items()}}
     if len(groups) > 1:
         pts = [g for g in groups if g["lat"] is not None]
         allw = weather(sum(g["lat"] for g in pts) / len(pts), sum(g["lng"] for g in pts) / len(pts)) if pts else {}
@@ -616,9 +630,10 @@ def main(now=None):
                 json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"generated_at": now, "demo": os.environ.get("NB_DEMO") == "1",
             "systems": [{"key": g["key"], "name": g["name"], "domains": g["domains"], "cities": g["cities"],
-                         "note": g.get("note"), "partners": g.get("partners")} for g in groups]}
+                         "note": g.get("note")} for g in groups]}
     with open(os.path.join(C.SITE_DATA, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False)
+    write_internal(con, {"generated_at": now, "systems": internal})
     print(f"built {len(out)} files")
 
 

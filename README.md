@@ -83,14 +83,19 @@ Animacijo lahko izvoziš kot sliko končnega stanja (PNG) ali kot video (MP4 ali
 
 Pri sistemih z več občinami (KOLESCE, BICIKEL, GO2GO) lahko pod zavihki izbereš eno ali več občin. Pogled se izračuna v brskalniku iz agregatov po postajah (`cube` v JSON datoteki sistema). Vožnja šteje v občini, kjer se začne. Kolesa v vožnji in flota so vezani na celoten sistem, zato jih pri izbiri občin ni.
 
-## Interne analize po partnerjih
+## Interni del (Sales, Operations)
 
-Postaje sistema BICIKEL so razdeljene po partnerjih v `partners/bicikel.csv` (`postaja;partner`). Interni pogled (izbereš lahko enega ali več partnerjev hkrati) odpreš z naslovom
-`https://petzni.github.io/nomago-bikes-live/#interno` (ali neposredno npr. `#interno-bicikel-btc`). Pod zavihki se pojavi izbira partnerja, sistem pa dobi tabelo »Primerjava partnerjev«.
+Javna stran je na `/`, v nogi je povezava »Interni dostop« (`#interno`). Interni del zahteva prijavo prek Supabase Auth in ima dva segmenta:
 
-Postaje, ki jih ni v tabeli, so v skupini »Brez partnerja«. Ime postaje se mora ujemati z imenom v nextbike (velike/male črke, presledki in pomišljaji niso pomembni). Za drug sistem dodaj datoteko in vnos v `PARTNER_FILES` v `common.py`.
+- **Sales**: vse z javne strani plus izbira partnerjev (ena ali več hkrati) in primerjava partnerjev.
+- **Operations**: napovedovanje za razvoz (v pripravi).
 
-Interni pogled ni zaščiten: povezava ni objavljena, a JSON podatki so dostopni vsakomur, ki pozna naslov.
+Razdelitev postaj po partnerjih je v `partners/bicikel.csv` (`postaja;partner`); za drug sistem dodaj datoteko in vnos v `PARTNER_FILES` v `common.py`. Partnerski podatki niso več v javnih datotekah: builder jih zapiše v tabelo `nb.internal_files`, stran pa jih po prijavi prebere s funkcijo `nb_internal`, ki deluje samo za prijavljene uporabnike.
+
+**Uporabniki** (Supabase → Authentication):
+1. **Sign In / Providers → Email**: izklopi *Allow new users to sign up*, da se nihče ne more registrirati sam.
+2. **Users → Add user → Create new user**: vpiši e-pošto in geslo, obkljukaj *Auto Confirm User*.
+3. Odvzem dostopa: uporabnika izbriši ali mu zamenjaj geslo.
 
 ## Razvoj lokalno (brez Supabase)
 

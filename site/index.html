@@ -122,6 +122,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
   border-radius: 8px; padding: 8px 12px; display: grid; gap: 2px; pointer-events: none }
 .fhud b { font: 800 22px/1.1 var(--display); font-stretch: 112%; font-variant-numeric: tabular-nums }
 .fhud span { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums }
+.segoff { display: none !important }
+.ibar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface) }
+.segs { display: flex; gap: 4px }
+.segs button { font: 700 15px var(--display); font-stretch: 112%; color: var(--muted); background: transparent; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer }
+.segs button[aria-pressed="true"] { background: var(--ink); color: var(--bg) }
+.iuser { font-size: 14px; color: var(--muted) }
+.iuser a, footer a { color: var(--ink); text-underline-offset: 3px }
+.login { position: fixed; inset: 0; z-index: 1000; background: color-mix(in srgb, var(--bg) 92%, transparent); display: grid; place-items: center; padding: 16px }
+.lcard { width: min(100%, 380px); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: grid; gap: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.12) }
+.lcard label { font-size: 14px; color: var(--muted) }
+.lcard input { font: 16px var(--body); padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink) }
+.lcard a { font-size: 14px; color: var(--muted); justify-self: center }
 .mapjump { display: flex; flex-wrap: wrap; gap: 6px }
 .mapjump button { font: 600 12.5px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer }
 .mapjump button:hover { border-color: var(--accent) }
@@ -189,9 +201,17 @@ footer p { margin: 0 }
       <label for="pto">do</label><input type="date" id="pto">
     </div>
     <nav class="tabs ptabs wtabs" id="wtabs" aria-label="Dnevi v tednu" hidden></nav>
-    <div class="demo" id="internal" hidden><b>Interni pogled.</b> Analize po partnerjih. Povezava ni objavljena na strani, podatki pa so javno dostopni vsakomur, ki pozna naslov.</div>
+    <div class="ibar" id="internal" hidden>
+      <nav class="segs" aria-label="Interni segment"><button type="button" data-seg="sales" aria-pressed="true">Sales</button><button type="button" data-seg="ops" aria-pressed="false">Operations</button></nav>
+      <span class="iuser"><span id="iuser"></span> · <a href="#" id="logout">Odjava</a></span>
+    </div>
     <div class="demo" id="demo" hidden><b>Demo podatki.</b> Številke, postaje in kolesa so simulirani za predogled strani. Ko zbiralnik teče na strežniku, se tu prikažejo pravi podatki iz nextbike API-ja.</div>
   </header>
+
+  <section id="ops-sec" aria-labelledby="h-ops" hidden>
+    <div class="sec-head"><h2 id="h-ops">Operations</h2><p>Napovedovanje za razvoz koles. V pripravi.</p></div>
+    <div class="panel"><p style="margin:0">Ta segment bo prikazoval napoved povpraševanja po postajah in predlog razvoza. Vsebino pripravljamo.</p></div>
+  </section>
 
   <section aria-labelledby="h-now">
     <div class="sec-head"><h2 id="h-now">Trenutno stanje</h2><p id="now-sub"></p></div>
@@ -273,9 +293,21 @@ footer p { margin: 0 }
     <p><b>Kako štejemo.</b> Vsaki 2 minuti preberemo javni nextbike vir. Ko kolo izgine s postaje in se pojavi drugje, to štejemo kot vožnjo. Premiki 3 ali več koles hkrati med istima postajama so prerazporeditve, odsotnosti nad 6 ur pa servis; oboje izločimo.</p>
     <p>Kilometri so zračna razdalja × 1,3, za vožnje z vrnitvijo na isto postajo pa ocena iz trajanja. CO₂ predpostavlja 150 g na km, ki bi ga sicer prevozili z avtom.</p>
     <p id="gen"></p>
+    <p><a href="#interno" id="intlink">Interni dostop</a></p>
   </footer>
 </div>
 <div id="tip" hidden></div>
+<div class="login" id="login" hidden>
+  <form class="lcard" id="lform">
+    <h2>Interni dostop</h2>
+    <p class="muted" style="margin:0">Prijava za zaposlene Nomago.</p>
+    <label for="lemail">E-pošta</label><input id="lemail" type="email" autocomplete="username" required>
+    <label for="lpass">Geslo</label><input id="lpass" type="password" autocomplete="current-password" required>
+    <p class="err" id="lerr" hidden></p>
+    <button type="submit" class="fbtn primary" id="lbtn">Prijava</button>
+    <a href="#" id="lback">Nazaj na javno stran</a>
+  </form>
+</div>
 
 <script src="config.js"></script>
 <script>
@@ -294,6 +326,7 @@ const titleCase = s => { const [n, ...rest] = String(s || "").split(" · "); ret
 
 let META = null, DATA = null, BASE = null, current = "all", INTERNAL = false;
 let selCities = new Set(), selParts = new Set(), PMAP = {};
+let IMAP = null, ICMP = {}, SB = null, SEG = "sales";  // interni podatki (po prijavi)
 const partsOf = k => (META.systems.find(s => s.key === k) || {}).partners || null;
 const scopeText = () => [[...selParts].join(" + "), [...selCities].join(", ")].filter(Boolean).join(" · ");
 const parentOf = k => { for (const s of META.systems) if ((s.partners || []).some(p => p.key === k)) return s.key; return k; };
@@ -356,7 +389,7 @@ async function select(k) {
   else if (k !== current) selParts = new Set();
   current = k;
   if (INTERNAL && partsOf(k)) {
-    try { const H = await getHist([k]); PMAP = Object.fromEntries(Object.entries(H.st).map(([u, v]) => [u, v[3]])); } catch (e) { PMAP = {}; }
+    PMAP = IMAP || {};
   }
   $("#tabs").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b.dataset.k === parentOf(k)));
   ptabs();
@@ -474,6 +507,7 @@ async function getHist(keys, months) {
   const idx = await Promise.all(keys.map(k => hcache[k] || (hcache[k] = getJSON(`${DATA_BASE}${k}-hist.json`))));
   const H = { days: idx[0].days, st: {}, wx: idx[0].wx || {}, cross: idx.some(x => x.cross), sd: [], sh: [], od: [], lg: [], sys: [], xb: [] };
   idx.forEach(x => Object.assign(H.st, x.st));
+  if (IMAP) for (const [u, v] of Object.entries(H.st)) v[3] = IMAP[u] || null;
   if (!months) return H;
   const jobs = [];
   keys.forEach((k, j) => months.filter(m => idx[j].months.includes(m)).forEach(m => {
@@ -1301,7 +1335,7 @@ function renderTables() {
 }
 
 function renderCompare() {
-  const pc = INTERNAL ? DATA.partners_compare : null;
+  const pc = INTERNAL && !selCities.size ? ICMP[current] : null;
   if (pc) {
     $("#cmp-sec").hidden = false;
     $("#h-cmp").textContent = "Primerjava partnerjev";
@@ -1375,6 +1409,49 @@ async function liveRefresh() {
   } catch (e) { /* CORS ali omrežje */ }
 }
 
+/* ------- interni dostop: prijava prek Supabase Auth, interni podatki iz funkcije nb_internal ------- */
+function loadScript(src) { return new Promise((ok, err) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = err; document.head.appendChild(s); }); }
+function applyInternal(bundle) {
+  IMAP = {}; ICMP = {};
+  for (const [k, v] of Object.entries((bundle && bundle.systems) || {})) {
+    const sys = META.systems.find(s => s.key === k); if (sys) sys.partners = v.partners;
+    Object.assign(IMAP, v.map || {}); ICMP[k] = v.compare;
+  }
+  for (const k of Object.keys(hcache)) if (!k.includes("|")) delete hcache[k];
+}
+async function internalLogin() {
+  const cfg = window.NB_CONFIG || {};
+  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {  // lokalni razvoj brez Supabase
+    try { applyInternal(await getJSON(DATA_BASE + "internal.json")); return true; } catch (e) { return false; }
+  }
+  try { await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js"); }
+  catch (e) { return false; }
+  SB = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const fetchBundle = async () => { const { data, error } = await SB.rpc("nb_internal", { p: "bundle" }); if (error) throw error; return data; };
+  const { data: { session } } = await SB.auth.getSession();
+  if (session) { try { applyInternal(await fetchBundle()); $("#iuser").textContent = session.user.email; return true; } catch (e) { await SB.auth.signOut(); } }
+  $("#login").hidden = false; $("#lemail").focus();
+  return new Promise(resolve => {
+    $("#lback").onclick = e => { e.preventDefault(); $("#login").hidden = true; history.replaceState(null, "", location.pathname); resolve(false); };
+    $("#lform").onsubmit = async e => {
+      e.preventDefault(); $("#lerr").hidden = true; $("#lbtn").disabled = true;
+      const { data, error } = await SB.auth.signInWithPassword({ email: $("#lemail").value.trim(), password: $("#lpass").value });
+      $("#lbtn").disabled = false;
+      if (error) { $("#lerr").textContent = "Prijava ni uspela. Preveri e-pošto in geslo."; $("#lerr").hidden = false; return; }
+      try { applyInternal(await fetchBundle()); } catch (er) { $("#lerr").textContent = "Prijava je uspela, internih podatkov pa ni mogoče naložiti."; $("#lerr").hidden = false; return; }
+      $("#iuser").textContent = data.user.email; $("#login").hidden = true; $("#lpass").value = ""; resolve(true);
+    };
+  });
+}
+function setSeg(seg) {
+  SEG = seg;
+  document.querySelectorAll(".segs button").forEach(b => b.setAttribute("aria-pressed", b.dataset.seg === seg));
+  const ops = seg === "ops";
+  $("#ops-sec").hidden = !ops;
+  document.querySelectorAll(".wrap > section:not(#ops-sec)").forEach(sec => sec.classList.toggle("segoff", ops));
+  ["#tabs", "#ptabs", "#ctabs", "#ttabs", "#prange", "#wtabs"].forEach(q => $(q).classList.toggle("segoff", ops));
+}
+
 async function init() {
   try {
     META = await getJSON(DATA_BASE + "meta.json");
@@ -1384,12 +1461,16 @@ async function init() {
   $("#demo").hidden = !META.demo;
   if (!META.systems.length) { $("#fresh").textContent = "zbiranje podatkov se še ni začelo, poskusi čez nekaj minut"; return; }
   let h = (location.hash || "").slice(1);
-  if (h.startsWith("interno")) { INTERNAL = true; h = h.slice(8); }
+  if (h.startsWith("interno")) { h = h.slice(8); if (await internalLogin()) INTERNAL = true; else h = ""; }
   $("#internal").hidden = !INTERNAL;
+  $("#intlink").hidden = INTERNAL;
   const keys = ["all", ...META.systems.flatMap(s => [s.key, ...(s.partners || []).map(p => p.key)])];
   current = keys.includes(h) ? h : (META.systems.length > 1 ? "all" : META.systems[0].key);
   tabs();
   flowInit();
+  $("#intlink").onclick = () => setTimeout(() => location.reload(), 0);
+  document.querySelectorAll(".segs button").forEach(b => b.onclick = () => setSeg(b.dataset.seg));
+  $("#logout").onclick = async e => { e.preventDefault(); if (SB) await SB.auth.signOut(); location.hash = ""; location.reload(); };
   $("#q").addEventListener("input", () => PER.mode === "live" ? renderStations() : renderPeriodStations());
   const onRange = () => { PER.from = $("#pfrom").value; PER.to = $("#pto").value; PER.mode = "custom"; applyView(); };
   $("#pfrom").addEventListener("change", onRange); $("#pto").addEventListener("change", onRange);
