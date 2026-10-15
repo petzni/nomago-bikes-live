@@ -98,7 +98,7 @@ Z nastavljenim `DATABASE_URL` vsi skripti (`collector.py`, `builder.py`, `simula
 | `collector.py` | ista logika v Pythonu za SQLite/lastni strežnik |
 | `simulate.py` | simulirani podatki v obliki nextbike-live.json za razvoj in test |
 | `common.py` | nastavitve (pragovi, CO₂ na km, faktor obvoza) in povezava z bazo |
-| `site/index.html` | stran (ena datoteka, brez build koraka) |
+| `site/index.html` | stran (ena datoteka, brez build koraka; zemljevid: Leaflet + OpenStreetMap) |
 | `.github/workflows/pages.yml` | izračun vsakih 15 min in objava na GitHub Pages |
 
 ## Omejitve

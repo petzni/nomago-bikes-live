@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Nomago Bikes v živo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@112,500;112,700;125,800&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap">
 <style>
 /* Postavitev: dispečerska tabla. Zgoraj živo stanje + karta postaj, spodaj zgodovina in razpoložljivost. */
@@ -15,15 +17,18 @@
   --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
   --body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --tiles: saturate(.55) contrast(.95);
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
-  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark } }
+  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4) } }
 :root[data-theme="dark"] {
   --bg: #0d1412; --surface: #141d1a; --ink: #e4ece9; --muted: #93a39e; --line: #26332f; --grid: #1c2724;
   --accent: #3fc2aa; --transit: #f08a4b; --critical: #f06a6a; --warn: #e0a640;
-  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark }
+  --s1: #2b4a43; --s2: #23615a; --s3: #22786a; --s4: #34a692; --s5: #84dcc9; color-scheme: dark;
+  --tiles: invert(1) hue-rotate(180deg) brightness(.9) contrast(.85) saturate(.4) }
 
 * { box-sizing: border-box }
 [hidden] { display: none !important }
@@ -82,10 +87,23 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 @media (max-width: 900px) { .live-grid { grid-template-columns: 1fr } }
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; align-content: start }
 .panel > * { min-width: 0 }
-.map svg { width: 100%; height: auto; display: block }
-.maps-multi { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px }
-.maps-multi figure { margin: 0; display: grid; gap: 4px }
-.maps-multi figcaption { font: 600 13.5px var(--body) }
+#map { height: 470px; border-radius: 8px; overflow: hidden; background: var(--grid); z-index: 0 }
+@media (max-width: 700px) { #map { height: 360px } }
+#map .leaflet-tile-pane { filter: var(--tiles) }
+#map .leaflet-container, #map.leaflet-container { font: 13px var(--body); background: var(--grid) }
+.leaflet-control-zoom a, .leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line) }
+.leaflet-control-attribution { background: color-mix(in srgb, var(--surface) 85%, transparent) !important; color: var(--muted) }
+.leaflet-control-attribution a { color: var(--muted) }
+.leaflet-tooltip { background: var(--ink); color: var(--bg); border: 0; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); font: 13px/1.4 var(--body) }
+.leaflet-tooltip::before { display: none }
+.mk { stroke: var(--surface); stroke-width: 2 }
+.mk-s1 { fill: var(--s1) } .mk-s2 { fill: var(--s2) } .mk-s3 { fill: var(--s3) } .mk-s4 { fill: var(--s4) } .mk-s5 { fill: var(--s5) }
+.mk-zero { fill: var(--grid); stroke: var(--muted); stroke-width: 1 }
+.mk-empty { fill: var(--surface); stroke: var(--critical); stroke-width: 2.5 }
+.fitbtn a { width: auto !important; height: 30px !important; line-height: 30px !important; padding: 0 10px; font: 600 12px var(--body) !important; white-space: nowrap }
+.mapjump { display: flex; flex-wrap: wrap; gap: 6px }
+.mapjump button { font: 600 12.5px var(--body); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; cursor: pointer }
+.mapjump button:hover { border-color: var(--accent) }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); align-items: center }
 .sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px }
 .st-list { max-height: 420px; overflow: auto; border-top: 1px solid var(--line) }
@@ -572,15 +590,8 @@ function drawPeriod(P) {
   const mx = Math.max(1, ...rows.map(r => r.visits));
   const fill = r => { const q = r.visits / mx; return !r.visits ? "var(--grid)" : q < .15 ? "var(--s1)" : q < .35 ? "var(--s2)" : q < .6 ? "var(--s3)" : q < .85 ? "var(--s4)" : "var(--s5)"; };
   const tipf = r => `<b>${esc(titleCase(r.name))}</b><br>${nf(r.dep)} izposoj · ${nf(r.arr)} vračil${r.empty != null ? `<br>brez koles ${nf(r.empty, 1)} % časa` : ""}`;
-  const opt = { fill, tip: tipf };
-  if (current === "all" && META.systems.length > 1) {
-    $("#map").innerHTML = `<div class="maps-multi">${META.systems.map(s => {
-      const sub = rows.filter(x => s.domains.includes(x.domain));
-      return `<figure><figcaption>${esc(s.name)} <span class="muted num">· ${nf(sub.reduce((a, x) => a + x.dep, 0))} voženj</span></figcaption>${mapSVG(sub, 260, 200, { ...opt, small: true, pad: 12 })}</figure>`;
-    }).join("")}</div>`;
-  } else $("#map").innerHTML = mapSVG(rows, 720, 470, opt);
-  $("#map-note").textContent = "Barva = izposoje + vračila v obdobju";
-  bindTips($("#map"));
+  drawMap(rows.map(r => ({ lat: r.lat, lng: r.lng, sys: sysOfDomain(r.domain), cls: clsOf(fill(r)),
+    r: 5 + 4 * Math.min((r.racks || 10) / 20, 1), tip: tipf(r) })), "Barva = izposoje + vračila v obdobju", jumpList());
   PROWS = rows;
   renderPeriodStations();
   $("#transit24").innerHTML = hourBars(P.hrsDay); bindTips($("#transit24"));
@@ -715,53 +726,51 @@ function fillColor(s) {
   return r < .2 ? "var(--s1)" : r < .45 ? "var(--s2)" : r < .7 ? "var(--s3)" : r < .9 ? "var(--s4)" : "var(--s5)";
 }
 
-function mapSVG(stations, W, H, opt = {}) {
-  const pts = stations.filter(s => s.lat && s.lng);
-  if (!pts.length) return `<p class="muted">Ni postaj.</p>`;
-  const lat0 = pts.reduce((a, s) => a + s.lat, 0) / pts.length;
-  const kx = 111.32 * Math.cos(lat0 * Math.PI / 180), ky = 110.57;
-  const xs = pts.map(s => s.lng * kx), ys = pts.map(s => -s.lat * ky);
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-  const pad = opt.pad ?? 18, spanX = Math.max(maxX - minX, .5), spanY = Math.max(maxY - minY, .5);
-  const sc = Math.min((W - 2 * pad) / spanX, (H - 2 * pad) / spanY);
-  const ox = (W - spanX * sc) / 2, oy = (H - spanY * sc) / 2;
-  const P = (x, y) => [ox + (x - minX) * sc, oy + (y - minY) * sc];
-  let g = "";
-  // 1-km mreža
-  const step = sc; // 1 km v px
-  if (step > 14) {
-    for (let x = ox % step; x < W; x += step) g += `<line x1="${x}" y1="0" x2="${x}" y2="${H}" stroke="var(--grid)" />`;
-    for (let y = oy % step; y < H; y += step) g += `<line x1="0" y1="${y}" x2="${W}" y2="${y}" stroke="var(--grid)" />`;
+
+/* Zemljevid: OpenStreetMap podlaga (Leaflet), postaje kot krogi. Pogled se ponovno prilagodi le ob menjavi sistema/izbire. */
+let LMAP = null, LLAYER = null, LFIT = null, LBOUNDS = null;
+const clsOf = f => !f ? "mk-empty" : f === "var(--grid)" ? "mk-zero" : "mk-" + f.slice(6, 8);
+function drawMap(items, note, jump) {
+  const el = $("#map");
+  if (!window.L) { el.innerHTML = `<p class="muted" style="padding:16px">Zemljevida ni mogoče naložiti.</p>`; return; }
+  if (!LMAP) {
+    LMAP = L.map(el, { scrollWheelZoom: false, zoomSnap: .5, preferCanvas: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(LMAP);
+    LLAYER = L.layerGroup().addTo(LMAP);
+    const Fit = L.Control.extend({ onAdd() { const d = L.DomUtil.create("div", "leaflet-bar fitbtn");
+      d.innerHTML = `<a href="#" role="button" title="Prikaži vse postaje">Vse postaje</a>`;
+      L.DomEvent.on(d.firstChild, "click", e => { L.DomEvent.preventDefault(e); if (LBOUNDS) LMAP.fitBounds(LBOUNDS, { padding: [24, 24] }); });
+      L.DomEvent.disableClickPropagation(d); return d; } });
+    new Fit({ position: "topright" }).addTo(LMAP);
+    LMAP.on("click", () => LMAP.scrollWheelZoom.enable());
+    LMAP.on("mouseout", () => LMAP.scrollWheelZoom.disable());
   }
-  const rMax = opt.small ? 6 : 10, rMin = opt.small ? 2.5 : 4;
-  const marks = pts.map((s, i) => {
-    const [x, y] = P(xs[i], ys[i]);
-    const r = rMin + (rMax - rMin) * Math.min((s.racks || 10) / 20, 1);
-    const f = opt.fill ? opt.fill(s) : fillColor(s);
-    const tipHtml = opt.tip ? opt.tip(s) : `<b>${esc(titleCase(s.name))}</b><br>${s.bikes ?? 0} koles · ${s.free ?? "–"} prostih mest`;
-    return f
-      ? `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(1)}" fill="${f}" stroke="var(--surface)" stroke-width="2" data-tip="${esc(tipHtml)}" data-uid="${s.uid}"/>`
-      : `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(r - 1).toFixed(1)}" fill="var(--surface)" stroke="var(--critical)" stroke-width="2.2" data-tip="${esc(tipHtml)}" data-uid="${s.uid}"/>`;
-  }).join("");
-  const bar = step > 20 && step < W * .6 ? `<g transform="translate(${W - pad - step},${H - 10})"><line x1="0" x2="${step}" y1="0" y2="0" stroke="var(--muted)" stroke-width="2"/><text x="${step / 2}" y="-5" text-anchor="middle" style="fill:var(--muted);font:11px var(--mono)">1 km</text></g>` : "";
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Shematska karta postaj">${g}${marks}${bar}</svg>`;
+  LLAYER.clearLayers();
+  const pts = items.filter(s => s.lat && s.lng);
+  for (const s of pts) L.circleMarker([s.lat, s.lng], { radius: s.r, className: "mk " + s.cls, fillOpacity: 1, opacity: 1 })
+    .bindTooltip(s.tip, { direction: "top", offset: [0, -s.r] }).addTo(LLAYER);
+  const key = current + "|" + [...selCities].join();
+  if (pts.length) LBOUNDS = L.latLngBounds(pts.map(s => [s.lat, s.lng]));
+  if (key !== LFIT && LBOUNDS) { LMAP.invalidateSize(); LMAP.fitBounds(LBOUNDS, { padding: [24, 24], maxZoom: 16 }); LFIT = key; }
+  $("#map-note").innerHTML = (jump ? `<div class="mapjump">${jump.map(j => `<button type="button" data-k="${esc(j.key)}">${esc(j.name)}</button>`).join("")}</div>` : "") +
+    `<div>${note} · klikni zemljevid za povečavo s kolescem miške</div>`;
+  if (jump) $("#map-note").querySelectorAll("button").forEach(b => b.onclick = () => {
+    const sub = pts.filter(s => s.sys === b.dataset.k);
+    if (sub.length) LMAP.fitBounds(L.latLngBounds(sub.map(s => [s.lat, s.lng])), { padding: [24, 24], maxZoom: 16 });
+  });
 }
+const sysOfDomain = d => (META.systems.find(s => s.domains.includes(d)) || {}).key;
+const jumpList = () => current === "all" && META.systems.length > 1 ? META.systems.map(s => ({ key: s.key, name: s.name })) : null;
 
 function renderMap() {
   const st = DATA.live.stations;
-  if (current === "all" && META.systems.length > 1) {
-    $("#map").innerHTML = `<div class="maps-multi">${META.systems.map(s => {
-      const sub = st.filter(x => s.domains.includes(x.domain));
-      const nb = sub.reduce((a, x) => a + (x.bikes || 0), 0);
-      return `<figure><figcaption>${esc(s.name)} <span class="muted num">· ${nf(nb)} koles</span></figcaption>${mapSVG(sub, 260, 200, { small: true, pad: 12 })}</figure>`;
-    }).join("")}</div>`;
-    $("#map-note").textContent = "Vsako mesto v svojem merilu";
-  } else {
-    $("#map").innerHTML = mapSVG(st, 720, 470);
-    $("#map-note").textContent = "Velikost kroga = število stojal · mreža 1 km";
-  }
-  bindTips($("#map"));
+  drawMap(st.map(s => ({ lat: s.lat, lng: s.lng, sys: sysOfDomain(s.domain), cls: clsOf(fillColor(s)),
+    r: 5 + 4 * Math.min((s.racks || 10) / 20, 1),
+    tip: `<b>${esc(titleCase(s.name))}</b><br>${s.bikes ?? 0} koles · ${s.free ?? "–"} prostih mest` })),
+    "Velikost kroga = število stojal", jumpList());
 }
+
 
 function renderBoard() {
   const L = DATA.live;
