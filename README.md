@@ -66,7 +66,7 @@ Pogled se izračuna v brskalniku iz dnevnih podatkov po postajah (`data/<sistem>
 
 ## Tokovi koles (animacija)
 
-Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je pika, ki potuje od postaje do postaje in za seboj pušča kratko bledečo sled, zato pogoste relacije same narišejo tokove. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
+Razdelek »Tokovi koles« za izbrani sistem, občine in obdobje (največ 31 dni) pokaže animacijo vseh voženj: vsako kolo je oranžna pika, ki potuje od postaje do postaje. Ko vožnja konča, med postajama ostane povezava, ki se z vsako naslednjo vožnjo (v obe smeri skupaj) odebeli. Podatki so v `data/<sistem>-flow-<mesec>.json` (od, do, dan, ura, število voženj, povprečno trajanje). Ura odhoda je znana na uro natančno, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so le relacije z vsaj 3 vožnjami v celotnem obdobju zbiranja.
 
 ## Izbira občin
 

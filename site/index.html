@@ -224,7 +224,7 @@ footer p { margin: 0 }
         <div id="fmap"></div>
         <div class="fhud" id="f-hud" hidden><b id="f-clock">–</b><span id="f-count"></span></div>
       </div>
-      <div class="label" id="f-note">Vsaka pika je kolo v vožnji. Kjer je voženj veliko, pike same narišejo tokove med postajami. Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
+      <div class="label" id="f-note">Oranžne pike so kolesa v vožnji. Ko vožnja konča, med postajama ostane zelena povezava, ki je debelejša, čim več voženj je bilo med njima (v obe smeri skupaj). Ura odhoda je znana na uro natančno, trajanje je povprečje relacije, zato je gibanje znotraj ure razporejeno enakomerno. Prikazane so relacije z vsaj 3 vožnjami.</div>
     </div>
   </section>
 
@@ -843,7 +843,7 @@ function flowSeek(t) {
   if (FL.endPtr && FL.byEnd[FL.endPtr - 1] && FL.byEnd[FL.endPtr - 1].e > FL.t) { FL.pair = {}; FL.endPtr = 0; }
   while (FL.endPtr < FL.byEnd.length && FL.byEnd[FL.endPtr].e <= FL.t) {
     const x = FL.byEnd[FL.endPtr++];
-    if (!x.loop) { const k = x.a + ">" + x.b; FL.pair[k] = (FL.pair[k] || 0) + 1; }
+    if (!x.loop) { const k = x.a < x.b ? x.a + ">" + x.b : x.b + ">" + x.a; FL.pair[k] = (FL.pair[k] || 0) + 1; }
   }
 }
 
@@ -864,10 +864,8 @@ function flowTick(now) {
   requestAnimationFrame(flowTick);
 }
 
-function bez(p0, p2, f) {  // ukrivljena pot, da se smeri A→B in B→A ne prekrivata
-  const mx = (p0.x + p2.x) / 2, my = (p0.y + p2.y) / 2, dx = p2.x - p0.x, dy = p2.y - p0.y;
-  const c = { x: mx - dy * .18, y: my + dx * .18 };
-  return t => { const u = 1 - t; return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p2.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p2.y }; };
+function bez(p0, p2) {  // ravna pot med postajama, po isti črti kot povezava
+  return t => ({ x: p0.x + (p2.x - p0.x) * t, y: p0.y + (p2.y - p0.y) * t });
 }
 
 function flowClearTrails() { if (FL.actx) { FL.actx.setTransform(1, 0, 0, 1, 0, 0); FL.actx.clearRect(0, 0, FL.acc.width, FL.acc.height); } }
@@ -889,10 +887,15 @@ function flowDraw(dt = 0) {
   const ctx = ac;
   const P = {};
   for (const [u, s] of Object.entries(FL.st)) P[u] = FL.map.latLngToContainerPoint(s.ll);
-  const tr = cssv("--transit"), mut = cssv("--muted");
-  // postaje
-  main.globalAlpha = .75; main.fillStyle = mut;
-  for (const [u, s] of Object.entries(FL.st)) if (s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 2.2, 0, 7); main.fill(); }
+  const tr = cssv("--transit");
+  // opravljene vožnje ostanejo kot povezava, ki se z vsako vožnjo odebeli
+  main.strokeStyle = cssv("--s5"); main.lineCap = "round";
+  for (const [k, n] of Object.entries(FL.pair)) {
+    const [a, b] = k.split(">"), pa = P[a], pb = P[b];
+    if (!pa || !pb) continue;
+    main.globalAlpha = Math.min(.85, .22 + .07 * n); main.lineWidth = Math.min(14, .5 + 1.1 * Math.sqrt(n));
+    main.beginPath(); main.moveTo(pa.x, pa.y); main.lineTo(pb.x, pb.y); main.stroke();
+  }
   // kolesa v vožnji
   const t = FL.t; let lo = 0, hi = FL.trips.length;
   const from = t - FL.maxDur;
@@ -911,6 +914,10 @@ function flowDraw(dt = 0) {
   }
   ctx.globalAlpha = 1;
   main.globalAlpha = 1; main.setTransform(1, 0, 0, 1, 0, 0); main.drawImage(FL.acc, 0, 0);
+  // postaje na vrhu: temna pika z belim robom, dobro vidna na zemljevidu
+  main.setTransform(d, 0, 0, d, 0, 0); main.fillStyle = cssv("--ink"); main.strokeStyle = cssv("--surface"); main.lineWidth = 1.5;
+  for (const [u, s] of Object.entries(FL.st)) if (s.inU) { main.beginPath(); main.arc(P[u].x, P[u].y, 3.6, 0, 7); main.fill(); main.stroke(); }
+  main.setTransform(1, 0, 0, 1, 0, 0);
   const dayI = Math.min(FL.days.length - 1, Math.floor(t / 1440)), m = Math.floor(t % 1440);
   const iso = FL.days[dayI] || FL.days[0];
   $("#f-clock").textContent = `${DAYS[wdOf(iso)]} ${fmtShort(iso)} · ${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
