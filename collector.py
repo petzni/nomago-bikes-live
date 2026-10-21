@@ -127,6 +127,13 @@ def ingest(con, data, ts):
         trip_rows.append((domain, bike, fu, tu, start, end, dur, round(km, 3), kind))
     con.executemany("""INSERT INTO trips (domain, bike, from_uid, to_uid, start_ts, end_ts, dur_s, km, kind)
                        VALUES (?,?,?,?,?,?,?,?,?)""", trip_rows)
+    # kombi razklada več minut: združi premike med istima postajama v časovnem oknu (enako kot nb.reclassify_rebalance)
+    w = C.REBALANCE_WINDOW_S
+    con.execute("""UPDATE trips SET kind = 'rebalance' WHERE kind = 'trip' AND from_uid IS NOT NULL AND to_uid IS NOT NULL
+        AND from_uid <> to_uid AND end_ts >= ? AND (SELECT count(*) FROM trips o WHERE o.from_uid = trips.from_uid
+          AND o.to_uid = trips.to_uid AND o.kind IN ('trip', 'rebalance')
+          AND o.start_ts BETWEEN trips.start_ts - ? AND trips.start_ts + ? AND abs(o.end_ts - trips.end_ts) <= ?) >= ?""",
+                (ts - 6 * 3600, w, w, w, C.REBALANCE_MIN_BIKES))
 
     # flota: na voljo / v vožnji
     in_transit = defaultdict(int)

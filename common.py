@@ -25,7 +25,8 @@ SYSTEMS = [
 MIN_TRIP_S = 60            # krajše "vožnje" A->A so ponovni priklopi, ne vožnje
 LOOP_MIN_S = 180           # A->A vožnja mora trajati vsaj 3 min
 SERVICE_GAP_S = 6 * 3600   # kolo, odsotno > 6 h, je bilo najverjetneje v servisu
-REBALANCE_MIN_BIKES = 3    # >=3 kolesa z iste postaje na isto postajo v istem intervalu = prerazporeditev
+REBALANCE_MIN_BIKES = 3    # >=3 kolesa z iste postaje na isto postajo ...
+REBALANCE_WINDOW_S = 1200  # ... z začetkom in koncem v razmiku do 20 min = prerazporeditev
 
 # Interne analize po partnerjih: datoteka postaja;partner za posamezen sistem
 PARTNER_FILES = {"bicikel": "partners/bicikel.csv"}
