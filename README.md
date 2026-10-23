@@ -109,6 +109,18 @@ Razdelitev postaj po partnerjih je v `partners/bicikel.csv` (`postaja;partner`);
 2. **Users → Add user → Create new user**: vpiši e-pošto in geslo, obkljukaj *Auto Confirm User*.
 3. Odvzem dostopa: uporabnika izbriši ali mu zamenjaj geslo.
 
+## Diagnoza razvoza (Operations)
+
+`ops/diagnoza.py` iz zbranih podatkov izračuna, kje in kdaj zmanjka koles ali prostih mest, ciljno zalogo vsake postaje pred jutranjo (6.45) in popoldansko (14.45) konico, seznam nalog, tipe postaj in predlog dveh con za vozili.
+
+```bash
+pip install "psycopg[binary]" numpy
+export DATABASE_URL='postgresql://...'   # Session pooler URI
+TZ=Europe/Ljubljana python3 ops/diagnoza.py --domain cc --od 2026-10-01 --depo "Središka ulica 4, Ljubljana" --kapaciteta 10 --vozil 2
+```
+
+Rezultat je v `ops/out/` (HTML poročilo in CSV po postajah). Vsebuje interne ocene, zato ni v gitu in ga ne objavljaj.
+
 ## Razvoj lokalno (brez Supabase)
 
 ```bash
