@@ -1,0 +1,31 @@
+name: Diagnostika voženj
+
+# Ročni zagon: Actions → Diagnostika voženj → Run workflow (domena in dan). Rezultat je v povzetku zagona.
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "nextbike domena (npr. cx)"
+        required: true
+        default: "cx"
+      day:
+        description: "dan (YYYY-MM-DD)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    env:
+      TZ: Europe/Ljubljana
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install "psycopg[binary]"
+          python tools/diag_day.py "${{ inputs.domain }}" "${{ inputs.day }}"
