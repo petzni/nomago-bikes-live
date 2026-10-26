@@ -134,6 +134,16 @@ def ingest(con, data, ts):
           AND o.to_uid = trips.to_uid AND o.kind IN ('trip', 'rebalance')
           AND o.start_ts BETWEEN trips.start_ts - ? AND trips.start_ts + ? AND abs(o.end_ts - trips.end_ts) <= ?) >= ?""",
                 (ts - 6 * 3600, w, w, w, C.REBALANCE_MIN_BIKES))
+    # izpadi vira: kolesa hkrati "izginejo" in se vrnejo na iste postaje (enako kot nb.reclassify_feed_gaps)
+    since = ts - 12 * 3600
+    con.execute("""UPDATE trips SET kind = 'feed_gap' WHERE kind = 'trip' AND from_uid = to_uid AND end_ts >= ? AND (
+        (SELECT count(*) FROM trips o WHERE o.domain = trips.domain AND o.from_uid = o.to_uid
+           AND o.kind IN ('trip', 'feed_gap') AND o.start_ts BETWEEN trips.start_ts - 60 AND trips.start_ts + 60) >= 4
+        OR (SELECT count(*) FROM trips o WHERE o.domain = trips.domain AND o.from_uid = o.to_uid
+           AND o.kind IN ('trip', 'feed_gap') AND o.end_ts BETWEEN trips.end_ts - 60 AND trips.end_ts + 60) >= 3)""", (since,))
+    con.execute("""UPDATE trips SET kind = 'feed_gap' WHERE kind = 'trip' AND from_uid = to_uid AND end_ts >= ?
+        AND EXISTS (SELECT 1 FROM trips o WHERE o.domain = trips.domain AND o.kind = 'feed_gap'
+                    AND o.start_ts BETWEEN trips.start_ts - 600 AND trips.start_ts + 600)""", (since,))
 
     # flota: na voljo / v vožnji
     in_transit = defaultdict(int)
