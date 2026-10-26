@@ -45,6 +45,10 @@ for bk, fu, tu, s, e, du, km, kind in rows:
 # stanje koles ob koncu dneva: ali kolesa skačejo med postajo in prosto parkiranim položajem
 text = "\n".join(out)
 print(text)
+if os.environ.get("GITHUB_ACTIONS"):  # tudi kot opombe zagona (berljive prek API-ja), po kosih
+    lines = text.split("\n")
+    for i in range(0, len(lines), 60):
+        print("::notice title=diag " + str(i // 60) + "::" + "%0A".join(lines[i:i + 60]).replace("%", "%25").replace("%250A", "%0A"))
 summ = os.environ.get("GITHUB_STEP_SUMMARY")
 if summ:
     with open(summ, "a", encoding="utf-8") as f:
