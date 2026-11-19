@@ -73,7 +73,8 @@ def pull():
                 "(SELECT max(rowid) FROM station_status GROUP BY station_uid)", (old,))
     dst.execute("DELETE FROM fleet_series WHERE ts < ?", (old,))
     dst.commit()
-    print(f"mirror pull {time.time() - t0:.1f}s: " + ", ".join(f"{k} {v}" for k, v in stats.items()))
+    msg = f"mirror pull {time.time() - t0:.1f}s: " + ", ".join(f"{k} {v}" for k, v in stats.items())
+    print(f"::notice title=mirror::{msg}" if os.environ.get("GITHUB_ACTIONS") else msg)
 
 
 def push():
