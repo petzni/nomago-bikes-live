@@ -75,6 +75,12 @@ Netlify gosti samo stran (`netlify.toml`), podatke pa bere z GitHub Pages, ki se
 
 GitHub Pages mora ostati vklopljen, ker so tam podatki.
 
+### Promet iz Supabase (egress)
+
+Brezplačni Supabase ima 5 GB odhodnega prometa na mesec. builder.py zato ne bere baze neposredno: `tools/mirror.py pull` v predpomnilnik GitHub Actions prenese samo nove vrstice (lokalna SQLite kopija), builder računa iz kopije, `tools/mirror.py push` pa vrne dnevne povzetke in interne podatke. Stran osvežuje živo stanje iz Supabase le v vidnem zavihku, vsaki 2 minuti.
+
+Po migraciji, ki popravlja stare vožnje za nazaj, povečaj številko v ključu predpomnilnika (`mirror-v1-` v `.github/workflows/pages.yml`), da se kopija zgradi znova.
+
 ## Kaj je javno
 
 Tabele v shemi `nb` niso dostopne prek Supabase API-ja. Javna sta le pogleda `nb_live_stations` (stanje postaj) in `nb_live_fleet` (število koles na voljo/v vožnji), samo za branje. Vožnje s številkami koles so dostopne le z `DATABASE_URL`. Na strani so samo agregati, relacije z manj kot 3 vožnjami pa so skrite.

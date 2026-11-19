@@ -1528,7 +1528,8 @@ async function init() {
   setInterval(async () => {  // novi izračuni builderja
     try { for (const k of Object.keys(cache)) delete cache[k]; for (const k of Object.keys(hcache)) delete hcache[k]; BASE = await load(current); applyView(); } catch (e) {}
   }, 120000);
-  liveRefresh(); setInterval(liveRefresh, 60000);
+  liveRefresh(); setInterval(() => { if (!document.hidden) liveRefresh(); }, 120000);  // samo vidni zavihki, vsaki 2 min (Supabase egress)
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) liveRefresh(); });
   setInterval(() => { if (DATA && PER.mode === "live") renderBoard(); }, 15000);
 }
 init();

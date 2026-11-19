@@ -41,11 +41,27 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Statistika iz Supabase
+      # Lokalna kopija baze v predpomnilniku: iz Supabase se prenesejo samo nove vrstice (prihranek pri egress).
+      # Po migraciji, ki popravlja stare vožnje, povečaj številko v ključu, da se kopija zgradi znova.
+      - name: Lokalna kopija baze (predpomnilnik)
         if: steps.mode.outputs.mode == 'live'
+        uses: actions/cache@v4
+        with:
+          path: mirror
+          key: mirror-v1-${{ github.run_id }}
+          restore-keys: mirror-v1-
+
+      - name: Statistika (lokalna kopija, sinhronizirana s Supabase)
+        if: steps.mode.outputs.mode == 'live'
+        env:
+          NB_DB: mirror/nb.sqlite
+          NB_INTERNAL_DIR: mirror/internal
         run: |
           pip install "psycopg[binary]"
-          python builder.py 2> err.txt || { cat err.txt; echo "::error::$(tail -n 3 err.txt | tr '\n' ' ')"; exit 1; }
+          mkdir -p mirror
+          python tools/mirror.py pull 2> err.txt || { cat err.txt; echo "::error::$(tail -n 3 err.txt | tr '\n' ' ')"; exit 1; }
+          DATABASE_URL= python builder.py 2> err.txt || { cat err.txt; echo "::error::$(tail -n 3 err.txt | tr '\n' ' ')"; exit 1; }
+          python tools/mirror.py push 2> err.txt || { cat err.txt; echo "::warning::$(tail -n 3 err.txt | tr '\n' ' ')"; }
 
       - name: Nastavitve strani
         if: steps.mode.outputs.mode != 'skip'
